@@ -128,7 +128,10 @@ func (r *Resolver) scan() {
 
 		pvcName = r.resolvePVCName(pvcName)
 
-		meta := podMetas[podUID]
+		meta, found := podMetas[podUID]
+		if !found {
+			continue
+		}
 		info := DeviceInfo{
 			PVCName:   pvcName,
 			PodName:   meta.Name,

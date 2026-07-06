@@ -1,14 +1,18 @@
 package ebpf
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
+	"sync"
+	"time"
 
 	"github.com/cilium/ebpf"
 	"github.com/cilium/ebpf/link"
 )
 
 type Programs struct {
+	mu            sync.RWMutex
 	blockObjs     *blockObjects
 	nfsObjs       *nfsObjects
 	nfsKprobeObjs *nfsKprobeObjects
@@ -20,10 +24,18 @@ type Programs struct {
 	BlockActive     bool
 	NFSActive       bool
 	NFSKprobeActive bool
+
+	retryNFS        bool
+	retryNFSKprobe  bool
+	nfsMapSize      int
+	nfsKprobeMapSize int
 }
 
 func LoadAndAttach(enableBlock, enableNFS, enableNFSKprobe bool, blockMapSize, nfsMapSize, nfsKprobeMapSize int, log *slog.Logger) (*Programs, error) {
-	p := &Programs{}
+	p := &Programs{
+		nfsMapSize:       nfsMapSize,
+		nfsKprobeMapSize: nfsKprobeMapSize,
+	}
 
 	if enableBlock {
 		if err := p.loadBlock(blockMapSize, log); err != nil {
@@ -35,7 +47,8 @@ func LoadAndAttach(enableBlock, enableNFS, enableNFSKprobe bool, blockMapSize, n
 
 	if enableNFS {
 		if err := p.loadNFS(nfsMapSize, log); err != nil {
-			log.Warn("NFS tracepoints unavailable — NFS monitoring disabled", "error", err)
+			log.Warn("NFS tracepoints unavailable — will retry periodically", "error", err)
+			p.retryNFS = true
 		} else {
 			p.NFSActive = true
 		}
@@ -43,7 +56,8 @@ func LoadAndAttach(enableBlock, enableNFS, enableNFSKprobe bool, blockMapSize, n
 
 	if enableNFSKprobe {
 		if err := p.loadNFSKprobe(nfsKprobeMapSize, log); err != nil {
-			log.Warn("NFS kprobes unavailable — NFS VFS monitoring disabled", "error", err)
+			log.Warn("NFS kprobes unavailable — will retry periodically", "error", err)
+			p.retryNFSKprobe = true
 		} else {
 			p.NFSKprobeActive = true
 		}
@@ -51,11 +65,49 @@ func LoadAndAttach(enableBlock, enableNFS, enableNFSKprobe bool, blockMapSize, n
 
 	requested := enableBlock || enableNFS || enableNFSKprobe
 	active := p.BlockActive || p.NFSActive || p.NFSKprobeActive
-	if requested && !active {
+	if requested && !active && !p.retryNFS && !p.retryNFSKprobe {
 		return nil, fmt.Errorf("all requested eBPF subsystems failed to load")
 	}
 
 	return p, nil
+}
+
+func (p *Programs) RetryFailed(ctx context.Context, interval time.Duration, log *slog.Logger) {
+	if !p.retryNFS && !p.retryNFSKprobe {
+		return
+	}
+
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			p.mu.Lock()
+			if p.retryNFS {
+				if err := p.loadNFS(p.nfsMapSize, log); err == nil {
+					p.NFSActive = true
+					p.retryNFS = false
+					log.Info("NFS tracepoints now available — NFS monitoring enabled")
+				}
+			}
+			if p.retryNFSKprobe {
+				if err := p.loadNFSKprobe(p.nfsKprobeMapSize, log); err == nil {
+					p.NFSKprobeActive = true
+					p.retryNFSKprobe = false
+					log.Info("NFS kprobes now available — NFS VFS monitoring enabled")
+				}
+			}
+			p.mu.Unlock()
+
+			if !p.retryNFS && !p.retryNFSKprobe {
+				log.Info("all eBPF subsystems loaded, stopping retry")
+				return
+			}
+		}
+	}
 }
 
 func (p *Programs) loadBlock(mapSize int, log *slog.Logger) error {

@@ -163,6 +163,8 @@ func startEBPF(ctx context.Context, cfg *config.Config, stores informerStores, l
 		return
 	}
 
+	go programs.RetryFailed(ctx, 1*time.Minute, log)
+
 	go func() {
 		<-ctx.Done()
 		programs.Close()

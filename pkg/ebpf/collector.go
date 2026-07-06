@@ -3,7 +3,6 @@ package ebpf
 import (
 	"log/slog"
 
-	ciliumebpf "github.com/cilium/ebpf"
 	"github.com/openshift-virtualization/kubevirt-storage-latency-exporter/pkg/device"
 	"github.com/prometheus/client_golang/prometheus"
 )
@@ -45,17 +44,12 @@ var (
 )
 
 type Collector struct {
-	blockHists      *ciliumebpf.Map
-	nfsHists        *ciliumebpf.Map
-	nfsKprobeHists  *ciliumebpf.Map
-	resolver        *device.Resolver
-	nodeName        string
-	buckets         []float64
-	namespaces      map[string]bool
-	blockActive     bool
-	nfsActive       bool
-	nfsKprobeActive bool
-	log             *slog.Logger
+	programs   *Programs
+	resolver   *device.Resolver
+	nodeName   string
+	buckets    []float64
+	namespaces map[string]bool
+	log        *slog.Logger
 }
 
 func NewCollector(programs *Programs, resolver *device.Resolver, nodeName string, buckets []float64, namespaces []string, log *slog.Logger) *Collector {
@@ -64,17 +58,12 @@ func NewCollector(programs *Programs, resolver *device.Resolver, nodeName string
 		nsFilter[ns] = true
 	}
 	return &Collector{
-		blockHists:      programs.BlockHists,
-		nfsHists:        programs.NfsHists,
-		nfsKprobeHists:  programs.NfsKprobeHists,
-		blockActive:     programs.BlockActive,
-		nfsActive:       programs.NFSActive,
-		nfsKprobeActive: programs.NFSKprobeActive,
-		resolver:        resolver,
-		nodeName:        nodeName,
-		buckets:         buckets,
-		namespaces:      nsFilter,
-		log:             log,
+		programs:   programs,
+		resolver:   resolver,
+		nodeName:   nodeName,
+		buckets:    buckets,
+		namespaces: nsFilter,
+		log:        log,
 	}
 }
 
@@ -91,33 +80,36 @@ func (c *Collector) Describe(ch chan<- *prometheus.Desc) {
 }
 
 func (c *Collector) Collect(ch chan<- prometheus.Metric) {
+	c.programs.mu.RLock()
+	defer c.programs.mu.RUnlock()
+
 	c.collectSubsystemGauge(ch)
-	if c.blockHists != nil {
+	if c.programs.BlockHists != nil {
 		c.collectBlock(ch)
 	}
-	if c.nfsHists != nil {
+	if c.programs.NfsHists != nil {
 		c.collectNFS(ch)
 	}
-	if c.nfsKprobeHists != nil {
+	if c.programs.NfsKprobeHists != nil {
 		c.collectNFSKprobe(ch)
 	}
 }
 
 func (c *Collector) collectSubsystemGauge(ch chan<- prometheus.Metric) {
 	val := 0.0
-	if c.blockActive {
+	if c.programs.BlockActive {
 		val = 1.0
 	}
 	ch <- prometheus.MustNewConstMetric(subsystemDesc, prometheus.GaugeValue, val, "block")
 
 	val = 0.0
-	if c.nfsActive {
+	if c.programs.NFSActive {
 		val = 1.0
 	}
 	ch <- prometheus.MustNewConstMetric(subsystemDesc, prometheus.GaugeValue, val, "nfs")
 
 	val = 0.0
-	if c.nfsKprobeActive {
+	if c.programs.NFSKprobeActive {
 		val = 1.0
 	}
 	ch <- prometheus.MustNewConstMetric(subsystemDesc, prometheus.GaugeValue, val, "nfs_kprobe")
@@ -142,7 +134,7 @@ type histValue struct {
 func (c *Collector) collectBlock(ch chan<- prometheus.Metric) {
 	var key blockHistKey
 	var val histValue
-	iter := c.blockHists.Iterate()
+	iter := c.programs.BlockHists.Iterate()
 
 	for iter.Next(&key, &val) {
 		if key.Op > 3 {
@@ -191,7 +183,7 @@ func (c *Collector) collectBlock(ch chan<- prometheus.Metric) {
 func (c *Collector) collectNFS(ch chan<- prometheus.Metric) {
 	var key nfsHistKey
 	var val histValue
-	iter := c.nfsHists.Iterate()
+	iter := c.programs.NfsHists.Iterate()
 
 	for iter.Next(&key, &val) {
 		if key.Op > 1 {
@@ -235,7 +227,7 @@ func (c *Collector) collectNFS(ch chan<- prometheus.Metric) {
 func (c *Collector) collectNFSKprobe(ch chan<- prometheus.Metric) {
 	var key nfsHistKey
 	var val histValue
-	iter := c.nfsKprobeHists.Iterate()
+	iter := c.programs.NfsKprobeHists.Iterate()
 
 	for iter.Next(&key, &val) {
 		if key.Op > 3 {

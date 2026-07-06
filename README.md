@@ -94,10 +94,26 @@ make push IMAGE=quay.io/myuser/kubevirt-storage-latency-exporter TAG=v0.1.0
 
 ## Deploying
 
-### OpenShift
+### From a release
+
+Download the install manifest from the [latest release](https://github.com/openshift-virtualization/kubevirt-storage-latency-exporter/releases/latest):
 
 ```bash
+# OpenShift
+oc apply -f https://github.com/openshift-virtualization/kubevirt-storage-latency-exporter/releases/latest/download/install-openshift.yaml
+
+# Kubernetes
+kubectl apply -f https://github.com/openshift-virtualization/kubevirt-storage-latency-exporter/releases/latest/download/install-kubernetes.yaml
+```
+
+### From source
+
+```bash
+# OpenShift
 make deploy
+
+# Kubernetes
+make deploy-kubernetes
 ```
 
 To deploy with a custom image:
@@ -106,15 +122,7 @@ To deploy with a custom image:
 make deploy IMAGE=quay.io/myuser/kubevirt-storage-latency-exporter TAG=v0.1.0
 ```
 
-This creates a DaemonSet in the `kubevirt-storage-latency-exporter` namespace with the required RBAC, SecurityContextConstraints, and PodMonitor for Prometheus scraping.
-
-### Kubernetes
-
-```bash
-make deploy-kubernetes
-```
-
-Same as OpenShift but without SecurityContextConstraints (e.g. for Kind clusters).
+The OpenShift variant includes SecurityContextConstraints, worker node selector, and PodMonitor for Prometheus scraping.
 
 ### Required capabilities
 

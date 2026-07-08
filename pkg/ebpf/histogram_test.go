@@ -1,163 +1,110 @@
 package ebpf
 
 import (
-	"testing"
+	. "github.com/onsi/ginkgo/v2"
+	. "github.com/onsi/gomega"
 )
 
 var defaultBuckets = []float64{0.01, 0.1, 1}
 
-func TestSlotsToConstHistogramEmpty(t *testing.T) {
-	var slots [MaxSlots]uint64
-	count, sum, buckets := SlotsToConstHistogram(slots, defaultBuckets)
+var _ = Describe("SlotsToConstHistogram", func() {
+	It("should return zeros for empty slots", func() {
+		var slots [MaxSlots]uint64
+		count, sum, buckets := SlotsToConstHistogram(slots, defaultBuckets)
 
-	if count != 0 {
-		t.Errorf("count = %d, want 0", count)
-	}
-	if sum != 0 {
-		t.Errorf("sum = %f, want 0", sum)
-	}
-	if len(buckets) != len(defaultBuckets) {
-		t.Errorf("len(buckets) = %d, want %d", len(buckets), len(defaultBuckets))
-	}
-	for _, v := range buckets {
-		if v != 0 {
-			t.Errorf("expected all bucket counts to be 0, got %d", v)
+		Expect(count).To(Equal(uint64(0)))
+		Expect(sum).To(Equal(float64(0)))
+		Expect(buckets).To(HaveLen(len(defaultBuckets)))
+		for _, v := range buckets {
+			Expect(v).To(Equal(uint64(0)))
 		}
-	}
-}
+	})
 
-func TestSlotsToConstHistogramFastOps(t *testing.T) {
-	var slots [MaxSlots]uint64
-	slots[5] = 100
+	It("should count fast operations into all buckets", func() {
+		var slots [MaxSlots]uint64
+		slots[5] = 100
 
-	count, sum, buckets := SlotsToConstHistogram(slots, defaultBuckets)
+		count, sum, buckets := SlotsToConstHistogram(slots, defaultBuckets)
 
-	if count != 100 {
-		t.Errorf("count = %d, want 100", count)
-	}
-	if sum <= 0 {
-		t.Error("sum should be positive")
-	}
-	for _, b := range defaultBuckets {
-		if buckets[b] != 100 {
-			t.Errorf("bucket le=%.3f = %d, want 100", b, buckets[b])
+		Expect(count).To(Equal(uint64(100)))
+		Expect(sum).To(BeNumerically(">", 0))
+		for _, b := range defaultBuckets {
+			Expect(buckets[b]).To(Equal(uint64(100)))
 		}
-	}
-}
+	})
 
-func TestSlotsToConstHistogramSlowOps(t *testing.T) {
-	var slots [MaxSlots]uint64
-	slots[21] = 50
+	It("should not count slow operations in small buckets", func() {
+		var slots [MaxSlots]uint64
+		slots[21] = 50
 
-	count, _, buckets := SlotsToConstHistogram(slots, defaultBuckets)
+		count, _, buckets := SlotsToConstHistogram(slots, defaultBuckets)
 
-	if count != 50 {
-		t.Errorf("count = %d, want 50", count)
-	}
-	for _, b := range defaultBuckets {
-		if buckets[b] != 0 {
-			t.Errorf("bucket le=%.3f = %d, want 0", b, buckets[b])
+		Expect(count).To(Equal(uint64(50)))
+		for _, b := range defaultBuckets {
+			Expect(buckets[b]).To(Equal(uint64(0)))
 		}
-	}
-}
+	})
 
-func TestSlotsToConstHistogramCumulative(t *testing.T) {
-	var slots [MaxSlots]uint64
-	slots[5] = 10
-	slots[15] = 20
-	slots[19] = 30
+	It("should produce cumulative bucket counts", func() {
+		var slots [MaxSlots]uint64
+		slots[5] = 10
+		slots[15] = 20
+		slots[19] = 30
 
-	count, _, buckets := SlotsToConstHistogram(slots, defaultBuckets)
+		count, _, buckets := SlotsToConstHistogram(slots, defaultBuckets)
 
-	if count != 60 {
-		t.Errorf("count = %d, want 60", count)
-	}
+		Expect(count).To(Equal(uint64(60)))
+		Expect(buckets).To(HaveKeyWithValue(0.01, uint64(10)))
+		Expect(buckets).To(HaveKeyWithValue(0.1, uint64(30)))
+		Expect(buckets).To(HaveKeyWithValue(1.0, uint64(60)))
+	})
 
-	expects := map[float64]uint64{
-		0.01: 10,
-		0.1:  30,
-		1:    60,
-	}
-	for b, want := range expects {
-		if buckets[b] != want {
-			t.Errorf("bucket le=%.3f = %d, want %d", b, buckets[b], want)
+	It("should handle slots beyond the max bucket boundary", func() {
+		var slots [MaxSlots]uint64
+		slots[25] = 5
+		slots[10] = 10
+
+		count, _, buckets := SlotsToConstHistogram(slots, defaultBuckets)
+
+		Expect(count).To(Equal(uint64(15)))
+		Expect(buckets[0.01]).To(Equal(uint64(10)))
+		Expect(buckets[1]).To(Equal(uint64(10)))
+	})
+
+	It("should work with custom bucket boundaries", func() {
+		var slots [MaxSlots]uint64
+		slots[5] = 10
+		slots[19] = 20
+		slots[23] = 30
+
+		custom := []float64{0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30, 60}
+		count, _, buckets := SlotsToConstHistogram(slots, custom)
+
+		Expect(count).To(Equal(uint64(60)))
+		Expect(buckets).To(HaveKeyWithValue(0.1, uint64(10)))
+		Expect(buckets).To(HaveKeyWithValue(0.25, uint64(10)))
+		Expect(buckets).To(HaveKeyWithValue(0.5, uint64(10)))
+		Expect(buckets).To(HaveKeyWithValue(1.0, uint64(30)))
+		Expect(buckets).To(HaveKeyWithValue(2.5, uint64(30)))
+		Expect(buckets).To(HaveKeyWithValue(5.0, uint64(30)))
+		Expect(buckets).To(HaveKeyWithValue(10.0, uint64(60)))
+		Expect(buckets).To(HaveKeyWithValue(30.0, uint64(60)))
+		Expect(buckets).To(HaveKeyWithValue(60.0, uint64(60)))
+	})
+})
+
+var _ = DescribeTable("namespaceAllowed",
+	func(namespaces []string, ns string, expected bool) {
+		nsFilter := make(map[string]bool, len(namespaces))
+		for _, n := range namespaces {
+			nsFilter[n] = true
 		}
-	}
-}
-
-func TestSlotsToConstHistogramBeyondMax(t *testing.T) {
-	var slots [MaxSlots]uint64
-	slots[25] = 5
-	slots[10] = 10
-
-	count, _, buckets := SlotsToConstHistogram(slots, defaultBuckets)
-
-	if count != 15 {
-		t.Errorf("count = %d, want 15", count)
-	}
-	if buckets[0.01] != 10 {
-		t.Errorf("bucket le=0.01 = %d, want 10", buckets[0.01])
-	}
-	if buckets[1] != 10 {
-		t.Errorf("bucket le=1 = %d, want 10", buckets[1])
-	}
-}
-
-func TestCustomBuckets(t *testing.T) {
-	var slots [MaxSlots]uint64
-	slots[5] = 10
-	slots[19] = 20
-	slots[23] = 30
-
-	custom := []float64{0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30, 60}
-	count, _, buckets := SlotsToConstHistogram(slots, custom)
-
-	if count != 60 {
-		t.Errorf("count = %d, want 60", count)
-	}
-
-	expects := map[float64]uint64{
-		0.1:  10,
-		0.25: 10,
-		0.5:  10,
-		1:    30,
-		2.5:  30,
-		5:    30,
-		10:   60,
-		30:   60,
-		60:   60,
-	}
-	for b, want := range expects {
-		if buckets[b] != want {
-			t.Errorf("bucket le=%.2f = %d, want %d", b, buckets[b], want)
-		}
-	}
-}
-
-func TestNamespaceAllowed(t *testing.T) {
-	tests := []struct {
-		name       string
-		namespaces []string
-		ns         string
-		want       bool
-	}{
-		{"empty filter allows all", nil, "anything", true},
-		{"empty filter allows empty ns", nil, "", true},
-		{"matching namespace allowed", []string{"default", "production"}, "default", true},
-		{"non-matching namespace denied", []string{"default", "production"}, "staging", false},
-		{"empty ns denied when filter set", []string{"default"}, "", false},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			nsFilter := make(map[string]bool, len(tt.namespaces))
-			for _, ns := range tt.namespaces {
-				nsFilter[ns] = true
-			}
-			c := &Collector{namespaces: nsFilter}
-			if got := c.namespaceAllowed(tt.ns); got != tt.want {
-				t.Errorf("namespaceAllowed(%q) = %v, want %v", tt.ns, got, tt.want)
-			}
-		})
-	}
-}
+		c := &Collector{namespaces: nsFilter}
+		Expect(c.namespaceAllowed(ns)).To(Equal(expected))
+	},
+	Entry("empty filter allows all", nil, "anything", true),
+	Entry("empty filter allows empty ns", nil, "", true),
+	Entry("matching namespace allowed", []string{"default", "production"}, "default", true),
+	Entry("non-matching namespace denied", []string{"default", "production"}, "staging", false),
+	Entry("empty ns denied when filter set", []string{"default"}, "", false),
+)

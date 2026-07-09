@@ -35,6 +35,8 @@ type vmState struct {
 	vmi          string
 	podName      string
 	prevSnapshot map[string]DiskCounters
+	pvcMap       map[string]string // volume name -> PVC claim name
+	diskMap      map[int]string    // PhysicalDrive index -> volume name
 	retryCount   int
 	stopped      bool
 	stopReason   string
@@ -50,11 +52,17 @@ func (vs *vmState) close() {
 	}
 }
 
+type enrichedDisk struct {
+	DiskMetrics
+	Drive string // KubeVirt volume name (empty if unmapped)
+	PVC   string // PVC claim name (empty if not a PVC)
+}
+
 type vmiResult struct {
 	Namespace string
 	VMI       string
 	Node      string
-	Disks     []DiskMetrics
+	Disks     []enrichedDisk
 }
 
 type Collector struct {
@@ -125,21 +133,21 @@ func (c *Collector) Collect(ch chan<- prometheus.Metric) {
 			if disk.RdIOPS > 0 || disk.RdLatSec > 0 {
 				ch <- prometheus.MustNewConstMetric(
 					latencyAvgDesc, prometheus.GaugeValue, disk.RdLatSec,
-					vmi.Namespace, vmi.VMI, vmi.Node, disk.Name, "read",
+					vmi.Namespace, vmi.VMI, vmi.Node, disk.Name, disk.Drive, "read", disk.PVC,
 				)
 				ch <- prometheus.MustNewConstMetric(
 					iopsDesc, prometheus.GaugeValue, disk.RdIOPS,
-					vmi.Namespace, vmi.VMI, vmi.Node, disk.Name, "read",
+					vmi.Namespace, vmi.VMI, vmi.Node, disk.Name, disk.Drive, "read", disk.PVC,
 				)
 			}
 			if disk.WrIOPS > 0 || disk.WrLatSec > 0 {
 				ch <- prometheus.MustNewConstMetric(
 					latencyAvgDesc, prometheus.GaugeValue, disk.WrLatSec,
-					vmi.Namespace, vmi.VMI, vmi.Node, disk.Name, "write",
+					vmi.Namespace, vmi.VMI, vmi.Node, disk.Name, disk.Drive, "write", disk.PVC,
 				)
 				ch <- prometheus.MustNewConstMetric(
 					iopsDesc, prometheus.GaugeValue, disk.WrIOPS,
-					vmi.Namespace, vmi.VMI, vmi.Node, disk.Name, "write",
+					vmi.Namespace, vmi.VMI, vmi.Node, disk.Name, disk.Drive, "write", disk.PVC,
 				)
 			}
 		}
@@ -163,6 +171,7 @@ type podInfo struct {
 	namespace string
 	podName   string
 	vmiName   string
+	pvcMap    map[string]string
 }
 
 func (c *Collector) poll(ctx context.Context) {
@@ -195,10 +204,17 @@ func (c *Collector) poll(ctx context.Context) {
 		if vmiName == "" {
 			continue
 		}
+		pvcMap := make(map[string]string)
+		for _, vol := range pod.Spec.Volumes {
+			if vol.PersistentVolumeClaim != nil {
+				pvcMap[vol.Name] = vol.PersistentVolumeClaim.ClaimName
+			}
+		}
 		allPods = append(allPods, podInfo{
 			namespace: pod.Namespace,
 			podName:   pod.Name,
 			vmiName:   vmiName,
+			pvcMap:    pvcMap,
 		})
 	}
 
@@ -252,7 +268,7 @@ func (c *Collector) poll(ctx context.Context) {
 			continue
 		}
 
-		vs, err := c.connectVM(t.namespace, t.vmiName, t.podName, info.PID)
+		vs, err := c.connectVM(ctx, t.namespace, t.vmiName, t.podName, info.PID, t.pvcMap)
 		if err != nil {
 			c.log.Error("qga: connecting to VM", "namespace", t.namespace, "vmi", t.vmiName, "error", err)
 			continue
@@ -372,7 +388,7 @@ func (c *Collector) scrapeVM(ctx context.Context, vs *vmState) (*vmiResult, erro
 			"ts", dc.Timestamp100ns)
 	}
 
-	var disks []DiskMetrics
+	var disks []enrichedDisk
 	if vs.prevSnapshot == nil {
 		c.log.Debug("qga: first snapshot, no previous data to diff", "vmi", vs.vmi, "disks", len(currSnapshot))
 	}
@@ -384,9 +400,17 @@ func (c *Collector) scrapeVM(ctx context.Context, vs *vmState) (*vmiResult, erro
 			}
 			m := ComputeMetrics(prev, curr)
 			if m.ElapsedSec > 0 {
-				disks = append(disks, m)
+				ed := enrichedDisk{DiskMetrics: m}
+				if idx, ok := ParseDiskIndex(m.Name); ok {
+					if volName, ok := vs.diskMap[idx]; ok {
+						ed.Drive = volName
+						ed.PVC = vs.pvcMap[volName]
+					}
+				}
+				disks = append(disks, ed)
 				c.log.Debug("qga: computed metrics",
 					"vmi", vs.vmi, "disk", m.Name,
+					"drive", ed.Drive, "pvc", ed.PVC,
 					"rd_lat_ms", m.RdLatSec*1000, "rd_iops", m.RdIOPS,
 					"wr_lat_ms", m.WrLatSec*1000, "wr_iops", m.WrIOPS,
 					"elapsed_s", m.ElapsedSec)
@@ -409,7 +433,7 @@ func (c *Collector) scrapeVM(ctx context.Context, vs *vmState) (*vmiResult, erro
 	}, nil
 }
 
-func (c *Collector) connectVM(ns, vmi, podName string, pid int) (*vmState, error) {
+func (c *Collector) connectVM(ctx context.Context, ns, vmi, podName string, pid int, pvcMap map[string]string) (*vmState, error) {
 	sockPath := fmt.Sprintf("/proc/%d/root/run/libvirt/virtqemud-sock", pid)
 	if _, err := os.Stat(sockPath); err != nil {
 		return nil, fmt.Errorf("virtqemud socket not found at %s: %w", sockPath, err)
@@ -422,10 +446,31 @@ func (c *Collector) connectVM(ns, vmi, podName string, pid int) (*vmState, error
 	}
 
 	c.log.Info("qga: connected to VM", "namespace", ns, "vmi", vmi, "pid", pid)
+
+	var diskMap map[int]string
+	domainXML, err := client.DomainGetXMLDesc()
+	if err != nil {
+		c.log.Warn("qga: DomainGetXMLDesc failed, disk mapping unavailable", "vmi", vmi, "error", err)
+	} else {
+		guestDisks, err := GuestGetDisks(ctx, client, c.cfg.QGATimeout)
+		if err != nil {
+			c.log.Warn("qga: guest-get-disks failed, disk mapping unavailable", "vmi", vmi, "error", err)
+		} else {
+			diskMap, err = BuildDiskMapping(domainXML, guestDisks)
+			if err != nil {
+				c.log.Warn("qga: building disk mapping failed", "vmi", vmi, "error", err)
+			} else {
+				c.log.Info("qga: disk mapping established", "vmi", vmi, "mappings", diskMap)
+			}
+		}
+	}
+
 	return &vmState{
 		client:    client,
 		namespace: ns,
 		vmi:       vmi,
 		podName:   podName,
+		pvcMap:    pvcMap,
+		diskMap:   diskMap,
 	}, nil
 }

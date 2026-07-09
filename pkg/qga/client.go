@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"strconv"
 	"strings"
 	"time"
 
@@ -173,6 +174,95 @@ func GuestExecWait(ctx context.Context, client *qmp.Client, pid int, timeout int
 	}
 
 	return nil, fmt.Errorf("guest-exec pid %d did not exit after %d attempts", pid, maxAttempts)
+}
+
+// GuestDisk represents a disk discovered via the guest-get-disks QGA command.
+type GuestDisk struct {
+	Name       string      // e.g. "\\\\.\\PhysicalDrive0"
+	DriveIndex int         // parsed from Name (e.g. 0)
+	PCIAddr    qmp.PCIAddr // PCI controller address from guest
+}
+
+type guestGetDisksResponse struct {
+	Return []guestDiskEntry `json:"return"`
+}
+
+type guestDiskEntry struct {
+	Name    string            `json:"name"`
+	Address *guestDiskAddress `json:"address,omitempty"`
+}
+
+type guestDiskAddress struct {
+	BusType       string              `json:"bus-type"`
+	PCIController *guestPCIController `json:"pci-controller,omitempty"`
+}
+
+type guestPCIController struct {
+	Domain   int `json:"domain"`
+	Bus      int `json:"bus"`
+	Slot     int `json:"slot"`
+	Function int `json:"function"`
+}
+
+// GuestGetDisks calls the built-in guest-get-disks QGA command and returns
+// disk entries with their PCI addresses. Only entries with a parseable
+// PhysicalDrive name and valid PCI address are returned.
+func GuestGetDisks(ctx context.Context, client *qmp.Client, timeout int32) ([]GuestDisk, error) {
+	cmd := `{"execute":"guest-get-disks"}`
+	result, err := client.AgentCommand(ctx, cmd, timeout)
+	if err != nil {
+		if isBlacklistError(err) {
+			return nil, ErrCommandBlacklisted
+		}
+		return nil, fmt.Errorf("guest-get-disks: %w", err)
+	}
+	return parseGuestGetDisks([]byte(result))
+}
+
+func parseGuestGetDisks(data []byte) ([]GuestDisk, error) {
+	var resp guestGetDisksResponse
+	if err := json.Unmarshal(data, &resp); err != nil {
+		return nil, fmt.Errorf("parsing guest-get-disks response: %w", err)
+	}
+
+	var disks []GuestDisk
+	for _, entry := range resp.Return {
+		if entry.Address == nil || entry.Address.PCIController == nil {
+			continue
+		}
+		idx, ok := parsePhysicalDriveIndex(entry.Name)
+		if !ok {
+			continue
+		}
+		pci := entry.Address.PCIController
+		disks = append(disks, GuestDisk{
+			Name:       entry.Name,
+			DriveIndex: idx,
+			PCIAddr: qmp.PCIAddr{
+				Domain:   pci.Domain,
+				Bus:      pci.Bus,
+				Slot:     pci.Slot,
+				Function: pci.Function,
+			},
+		})
+	}
+	return disks, nil
+}
+
+// parsePhysicalDriveIndex extracts the numeric index from a Windows
+// PhysicalDrive name like "\\\\.\\PhysicalDrive1" -> 1.
+func parsePhysicalDriveIndex(name string) (int, bool) {
+	const prefix = "PhysicalDrive"
+	idx := strings.LastIndex(name, prefix)
+	if idx < 0 {
+		return 0, false
+	}
+	numStr := name[idx+len(prefix):]
+	n, err := strconv.Atoi(numStr)
+	if err != nil {
+		return 0, false
+	}
+	return n, true
 }
 
 // wmicCommand is the wmic command and arguments for collecting disk perf counters.

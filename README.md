@@ -26,12 +26,14 @@ All metrics are exported under the `kubevirt_storage_*` prefix.
 
 | Metric | Type | Labels | Description |
 |--------|------|--------|-------------|
-| `kubevirt_storage_guest_io_latency_avg_seconds` | gauge | namespace, vmi, node, disk, operation | Average guest-side I/O latency per disk (read/write) |
-| `kubevirt_storage_guest_io_operations_per_second` | gauge | namespace, vmi, node, disk, operation | Guest-side IOPS per disk (read/write) |
+| `kubevirt_storage_guest_io_latency_avg_seconds` | gauge | namespace, vmi, node, disk, drive, operation, persistentvolumeclaim | Average guest-side I/O latency per disk (read/write), derived via Little's Law |
+| `kubevirt_storage_guest_io_operations_per_second` | gauge | namespace, vmi, node, disk, drive, operation, persistentvolumeclaim | Guest-side IOPS per disk (read/write) |
 | `kubevirt_storage_qga_scrape_errors_total` | counter | | Errors during QGA poll cycles |
 | `kubevirt_storage_qga_last_poll_timestamp_seconds` | gauge | | Unix timestamp of last QGA poll |
 
-The QGA subsystem collects raw Windows Performance Counters (`Win32_PerfRawData_PerfDisk_PhysicalDisk`) via `wmic` executed through the QEMU Guest Agent. Metrics are computed by diffing two successive counter snapshots. VMs without a guest agent (e.g., Linux) or with `guest-exec` blacklisted are automatically detected and excluded after a configurable number of retries.
+The `disk` label contains the raw Windows PhysicalDisk name (e.g. `"1 E:"`). The `drive` and `persistentvolumeclaim` labels are populated by correlating guest disk PCI addresses (from the `guest-get-disks` QGA command) with libvirt domain XML disk aliases (`ua-<volumeName>`), then mapping volume names to PVC claim names via the virt-launcher pod spec. If disk mapping is unavailable (e.g. old guest agent), `drive` and `persistentvolumeclaim` are empty.
+
+The QGA subsystem collects raw Windows Performance Counters (`Win32_PerfRawData_PerfDisk_PhysicalDisk`) via `wmic` executed through the QEMU Guest Agent. Metrics are computed by diffing two successive counter snapshots using Little's Law to derive latency from uint64 queue-length counters (avoiding uint32 overflow in the direct latency counters). VMs without a guest agent (e.g., Linux) or with `guest-exec` blacklisted are automatically detected and excluded after a configurable number of retries.
 
 ### eBPF metrics
 

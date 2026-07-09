@@ -218,6 +218,16 @@ func (c *Client) QueryVirtioQueueStatus(ctx context.Context, path string, queue 
 	return &status, nil
 }
 
+// DomainGetXMLDesc returns the libvirt domain XML for the connected domain.
+func (c *Client) DomainGetXMLDesc() (string, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.closed {
+		return "", fmt.Errorf("client is closed")
+	}
+	return c.lv.DomainGetXMLDesc(c.domain, 0)
+}
+
 func (c *Client) execQMP(command string, args any) (json.RawMessage, error) {
 	cmd := qmpCommand{Execute: command, Arguments: args}
 	cmdJSON, err := json.Marshal(cmd)

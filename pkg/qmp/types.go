@@ -2,8 +2,10 @@ package qmp
 
 import (
 	"encoding/json"
+	"encoding/xml"
 	"fmt"
 	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -90,4 +92,87 @@ type VirtQueueStatus struct {
 
 func IsVirtioBlk(dev *VirtioDevice) bool {
 	return strings.HasPrefix(dev.Name, "virtio-blk")
+}
+
+// PCIAddr identifies a PCI device by its domain/bus/slot/function.
+type PCIAddr struct {
+	Domain   int
+	Bus      int
+	Slot     int
+	Function int
+}
+
+type xmlDomain struct {
+	Devices struct {
+		Disks []xmlDisk `xml:"disk"`
+	} `xml:"devices"`
+}
+
+type xmlDisk struct {
+	Device  string   `xml:"device,attr"`
+	Alias   xmlAlias `xml:"alias"`
+	Address xmlAddr  `xml:"address"`
+}
+
+type xmlAlias struct {
+	Name string `xml:"name,attr"`
+}
+
+type xmlAddr struct {
+	Type     string `xml:"type,attr"`
+	Domain   string `xml:"domain,attr"`
+	Bus      string `xml:"bus,attr"`
+	Slot     string `xml:"slot,attr"`
+	Function string `xml:"function,attr"`
+}
+
+// ParseDiskAddresses extracts PCI addresses for each ua-* aliased disk
+// from a libvirt domain XML string.
+// Returns a map of PCIAddr -> KubeVirt volume name.
+func ParseDiskAddresses(domainXML string) (map[PCIAddr]string, error) {
+	var dom xmlDomain
+	if err := xml.Unmarshal([]byte(domainXML), &dom); err != nil {
+		return nil, fmt.Errorf("parsing domain XML: %w", err)
+	}
+
+	result := make(map[PCIAddr]string)
+	for _, d := range dom.Devices.Disks {
+		if d.Device != "disk" {
+			continue
+		}
+		if d.Address.Type != "pci" {
+			continue
+		}
+		volName := strings.TrimPrefix(d.Alias.Name, "ua-")
+		if volName == d.Alias.Name || volName == "" {
+			continue
+		}
+
+		addr, err := parseHexAddr(d.Address)
+		if err != nil {
+			continue
+		}
+		result[addr] = volName
+	}
+	return result, nil
+}
+
+func parseHexAddr(a xmlAddr) (PCIAddr, error) {
+	domain, err := strconv.ParseInt(strings.TrimPrefix(a.Domain, "0x"), 16, 32)
+	if err != nil {
+		return PCIAddr{}, err
+	}
+	bus, err := strconv.ParseInt(strings.TrimPrefix(a.Bus, "0x"), 16, 32)
+	if err != nil {
+		return PCIAddr{}, err
+	}
+	slot, err := strconv.ParseInt(strings.TrimPrefix(a.Slot, "0x"), 16, 32)
+	if err != nil {
+		return PCIAddr{}, err
+	}
+	fn, err := strconv.ParseInt(strings.TrimPrefix(a.Function, "0x"), 16, 32)
+	if err != nil {
+		return PCIAddr{}, err
+	}
+	return PCIAddr{Domain: int(domain), Bus: int(bus), Slot: int(slot), Function: int(fn)}, nil
 }

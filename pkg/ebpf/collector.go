@@ -9,31 +9,31 @@ import (
 
 var (
 	podBlockDesc = prometheus.NewDesc(
-		"kubevirt_storage_block_io_latency_seconds",
+		"kme_block_io_latency_seconds",
 		"Histogram of block I/O latency in seconds, attributed to a pod volume",
 		[]string{"node", "namespace", "persistentvolumeclaim", "pod", "operation"},
 		nil,
 	)
 	systemBlockDesc = prometheus.NewDesc(
-		"kubevirt_storage_system_block_io_latency_seconds",
+		"kme_system_block_io_latency_seconds",
 		"Histogram of block I/O latency in seconds for system/unresolvable devices",
 		[]string{"node", "device", "operation"},
 		nil,
 	)
 	nfsDesc = prometheus.NewDesc(
-		"kubevirt_storage_nfs_io_latency_seconds",
+		"kme_nfs_io_latency_seconds",
 		"Histogram of NFS I/O latency in seconds",
 		[]string{"node", "namespace", "persistentvolumeclaim", "pod", "operation"},
 		nil,
 	)
 	nfsVfsDesc = prometheus.NewDesc(
-		"kubevirt_storage_nfs_vfs_latency_seconds",
+		"kme_nfs_vfs_latency_seconds",
 		"Histogram of NFS VFS call latency in seconds (kprobe-based)",
 		[]string{"node", "namespace", "persistentvolumeclaim", "pod", "operation"},
 		nil,
 	)
 	subsystemDesc = prometheus.NewDesc(
-		"kubevirt_storage_subsystem_active",
+		"kme_subsystem_active",
 		"Whether an eBPF monitoring subsystem is active (1) or failed to load (0)",
 		[]string{"subsystem"},
 		nil,

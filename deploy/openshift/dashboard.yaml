@@ -29,7 +29,7 @@ spec:
                 name: cluster-monitoring
               labelName: node
               matchers:
-                - "kubevirt_storage_qmp_io_latency_seconds_count{}"
+                - "kubevirt_vmi_storage_io_latency_seconds_count{}"
 
       - kind: ListVariable
         spec:
@@ -46,7 +46,7 @@ spec:
                 name: cluster-monitoring
               labelName: vmi
               matchers:
-                - 'kubevirt_storage_qmp_io_latency_seconds_count{node=~"$node"}'
+                - 'kubevirt_vmi_storage_io_latency_seconds_count{node=~"$node"}'
 
       - kind: ListVariable
         spec:
@@ -63,7 +63,7 @@ spec:
                 name: cluster-monitoring
               labelName: persistentvolumeclaim
               matchers:
-                - 'kubevirt_storage_block_io_latency_seconds_count{node=~"$node"}'
+                - 'kme_block_io_latency_seconds_count{node=~"$node"}'
 
       - kind: ListVariable
         spec:
@@ -107,7 +107,7 @@ spec:
                     datasource:
                       kind: PrometheusDatasource
                       name: cluster-monitoring
-                    query: 'histogram_quantile(0.5, sum(rate(kubevirt_storage_qmp_io_latency_seconds_bucket{node=~"$node", vmi=~"$vmi", operation=~"$operation"}[$__rate_interval])) by (le))'
+                    query: 'histogram_quantile(0.5, sum(rate(kubevirt_vmi_storage_io_latency_seconds_bucket{node=~"$node", vmi=~"$vmi", operation=~"$operation"}[$__rate_interval])) by (le))'
                     minStep: "30s"
                     seriesNameFormat: p50
             - kind: TimeSeriesQuery
@@ -118,7 +118,7 @@ spec:
                     datasource:
                       kind: PrometheusDatasource
                       name: cluster-monitoring
-                    query: 'histogram_quantile(0.9, sum(rate(kubevirt_storage_qmp_io_latency_seconds_bucket{node=~"$node", vmi=~"$vmi", operation=~"$operation"}[$__rate_interval])) by (le))'
+                    query: 'histogram_quantile(0.9, sum(rate(kubevirt_vmi_storage_io_latency_seconds_bucket{node=~"$node", vmi=~"$vmi", operation=~"$operation"}[$__rate_interval])) by (le))'
                     minStep: "30s"
                     seriesNameFormat: p90
             - kind: TimeSeriesQuery
@@ -129,7 +129,7 @@ spec:
                     datasource:
                       kind: PrometheusDatasource
                       name: cluster-monitoring
-                    query: 'histogram_quantile(0.99, sum(rate(kubevirt_storage_qmp_io_latency_seconds_bucket{node=~"$node", vmi=~"$vmi", operation=~"$operation"}[$__rate_interval])) by (le))'
+                    query: 'histogram_quantile(0.99, sum(rate(kubevirt_vmi_storage_io_latency_seconds_bucket{node=~"$node", vmi=~"$vmi", operation=~"$operation"}[$__rate_interval])) by (le))'
                     minStep: "30s"
                     seriesNameFormat: p99
 
@@ -151,7 +151,7 @@ spec:
                     datasource:
                       kind: PrometheusDatasource
                       name: cluster-monitoring
-                    query: 'max(kubevirt_storage_subsystem_active{subsystem="block"})'
+                    query: 'max(kme_subsystem_active{subsystem="block"})'
 
       status_nfs:
         kind: Panel
@@ -171,7 +171,7 @@ spec:
                     datasource:
                       kind: PrometheusDatasource
                       name: cluster-monitoring
-                    query: 'max(kubevirt_storage_subsystem_active{subsystem="nfs"})'
+                    query: 'max(kme_subsystem_active{subsystem="nfs"})'
 
       status_nfs_kprobe:
         kind: Panel
@@ -191,7 +191,7 @@ spec:
                     datasource:
                       kind: PrometheusDatasource
                       name: cluster-monitoring
-                    query: 'max(kubevirt_storage_subsystem_active{subsystem="nfs_kprobe"})'
+                    query: 'max(kme_subsystem_active{subsystem="nfs_kprobe"})'
 
       block_quantiles:
         kind: Panel
@@ -216,7 +216,7 @@ spec:
                     datasource:
                       kind: PrometheusDatasource
                       name: cluster-monitoring
-                    query: 'histogram_quantile(0.5, sum(rate(kubevirt_storage_block_io_latency_seconds_bucket{node=~"$node", persistentvolumeclaim=~"$persistentvolumeclaim", operation=~"$operation"}[$__rate_interval])) by (le))'
+                    query: 'histogram_quantile(0.5, sum(rate(kme_block_io_latency_seconds_bucket{node=~"$node", persistentvolumeclaim=~"$persistentvolumeclaim", operation=~"$operation"}[$__rate_interval])) by (le))'
                     minStep: "30s"
                     seriesNameFormat: p50
             - kind: TimeSeriesQuery
@@ -227,7 +227,7 @@ spec:
                     datasource:
                       kind: PrometheusDatasource
                       name: cluster-monitoring
-                    query: 'histogram_quantile(0.9, sum(rate(kubevirt_storage_block_io_latency_seconds_bucket{node=~"$node", persistentvolumeclaim=~"$persistentvolumeclaim", operation=~"$operation"}[$__rate_interval])) by (le))'
+                    query: 'histogram_quantile(0.9, sum(rate(kme_block_io_latency_seconds_bucket{node=~"$node", persistentvolumeclaim=~"$persistentvolumeclaim", operation=~"$operation"}[$__rate_interval])) by (le))'
                     minStep: "30s"
                     seriesNameFormat: p90
             - kind: TimeSeriesQuery
@@ -238,7 +238,7 @@ spec:
                     datasource:
                       kind: PrometheusDatasource
                       name: cluster-monitoring
-                    query: 'histogram_quantile(0.99, sum(rate(kubevirt_storage_block_io_latency_seconds_bucket{node=~"$node", persistentvolumeclaim=~"$persistentvolumeclaim", operation=~"$operation"}[$__rate_interval])) by (le))'
+                    query: 'histogram_quantile(0.99, sum(rate(kme_block_io_latency_seconds_bucket{node=~"$node", persistentvolumeclaim=~"$persistentvolumeclaim", operation=~"$operation"}[$__rate_interval])) by (le))'
                     minStep: "30s"
                     seriesNameFormat: p99
 
@@ -265,7 +265,7 @@ spec:
                     datasource:
                       kind: PrometheusDatasource
                       name: cluster-monitoring
-                    query: 'histogram_quantile(0.5, sum(rate(kubevirt_storage_system_block_io_latency_seconds_bucket{node=~"$node", operation=~"$operation"}[$__rate_interval])) by (le))'
+                    query: 'histogram_quantile(0.5, sum(rate(kme_system_block_io_latency_seconds_bucket{node=~"$node", operation=~"$operation"}[$__rate_interval])) by (le))'
                     minStep: "30s"
                     seriesNameFormat: p50
             - kind: TimeSeriesQuery
@@ -276,7 +276,7 @@ spec:
                     datasource:
                       kind: PrometheusDatasource
                       name: cluster-monitoring
-                    query: 'histogram_quantile(0.9, sum(rate(kubevirt_storage_system_block_io_latency_seconds_bucket{node=~"$node", operation=~"$operation"}[$__rate_interval])) by (le))'
+                    query: 'histogram_quantile(0.9, sum(rate(kme_system_block_io_latency_seconds_bucket{node=~"$node", operation=~"$operation"}[$__rate_interval])) by (le))'
                     minStep: "30s"
                     seriesNameFormat: p90
             - kind: TimeSeriesQuery
@@ -287,7 +287,7 @@ spec:
                     datasource:
                       kind: PrometheusDatasource
                       name: cluster-monitoring
-                    query: 'histogram_quantile(0.99, sum(rate(kubevirt_storage_system_block_io_latency_seconds_bucket{node=~"$node", operation=~"$operation"}[$__rate_interval])) by (le))'
+                    query: 'histogram_quantile(0.99, sum(rate(kme_system_block_io_latency_seconds_bucket{node=~"$node", operation=~"$operation"}[$__rate_interval])) by (le))'
                     minStep: "30s"
                     seriesNameFormat: p99
 
@@ -314,7 +314,7 @@ spec:
                     datasource:
                       kind: PrometheusDatasource
                       name: cluster-monitoring
-                    query: 'histogram_quantile(0.5, sum(rate(kubevirt_storage_nfs_io_latency_seconds_bucket{node=~"$node", persistentvolumeclaim=~"$persistentvolumeclaim", operation=~"$operation"}[$__rate_interval])) by (le))'
+                    query: 'histogram_quantile(0.5, sum(rate(kme_nfs_io_latency_seconds_bucket{node=~"$node", persistentvolumeclaim=~"$persistentvolumeclaim", operation=~"$operation"}[$__rate_interval])) by (le))'
                     minStep: "30s"
                     seriesNameFormat: p50
             - kind: TimeSeriesQuery
@@ -325,7 +325,7 @@ spec:
                     datasource:
                       kind: PrometheusDatasource
                       name: cluster-monitoring
-                    query: 'histogram_quantile(0.9, sum(rate(kubevirt_storage_nfs_io_latency_seconds_bucket{node=~"$node", persistentvolumeclaim=~"$persistentvolumeclaim", operation=~"$operation"}[$__rate_interval])) by (le))'
+                    query: 'histogram_quantile(0.9, sum(rate(kme_nfs_io_latency_seconds_bucket{node=~"$node", persistentvolumeclaim=~"$persistentvolumeclaim", operation=~"$operation"}[$__rate_interval])) by (le))'
                     minStep: "30s"
                     seriesNameFormat: p90
             - kind: TimeSeriesQuery
@@ -336,7 +336,7 @@ spec:
                     datasource:
                       kind: PrometheusDatasource
                       name: cluster-monitoring
-                    query: 'histogram_quantile(0.99, sum(rate(kubevirt_storage_nfs_io_latency_seconds_bucket{node=~"$node", persistentvolumeclaim=~"$persistentvolumeclaim", operation=~"$operation"}[$__rate_interval])) by (le))'
+                    query: 'histogram_quantile(0.99, sum(rate(kme_nfs_io_latency_seconds_bucket{node=~"$node", persistentvolumeclaim=~"$persistentvolumeclaim", operation=~"$operation"}[$__rate_interval])) by (le))'
                     minStep: "30s"
                     seriesNameFormat: p99
 
@@ -363,7 +363,7 @@ spec:
                     datasource:
                       kind: PrometheusDatasource
                       name: cluster-monitoring
-                    query: 'histogram_quantile(0.5, sum(rate(kubevirt_storage_nfs_vfs_latency_seconds_bucket{node=~"$node", persistentvolumeclaim=~"$persistentvolumeclaim", operation=~"$operation"}[$__rate_interval])) by (le))'
+                    query: 'histogram_quantile(0.5, sum(rate(kme_nfs_vfs_latency_seconds_bucket{node=~"$node", persistentvolumeclaim=~"$persistentvolumeclaim", operation=~"$operation"}[$__rate_interval])) by (le))'
                     minStep: "30s"
                     seriesNameFormat: p50
             - kind: TimeSeriesQuery
@@ -374,7 +374,7 @@ spec:
                     datasource:
                       kind: PrometheusDatasource
                       name: cluster-monitoring
-                    query: 'histogram_quantile(0.9, sum(rate(kubevirt_storage_nfs_vfs_latency_seconds_bucket{node=~"$node", persistentvolumeclaim=~"$persistentvolumeclaim", operation=~"$operation"}[$__rate_interval])) by (le))'
+                    query: 'histogram_quantile(0.9, sum(rate(kme_nfs_vfs_latency_seconds_bucket{node=~"$node", persistentvolumeclaim=~"$persistentvolumeclaim", operation=~"$operation"}[$__rate_interval])) by (le))'
                     minStep: "30s"
                     seriesNameFormat: p90
             - kind: TimeSeriesQuery
@@ -385,7 +385,7 @@ spec:
                     datasource:
                       kind: PrometheusDatasource
                       name: cluster-monitoring
-                    query: 'histogram_quantile(0.99, sum(rate(kubevirt_storage_nfs_vfs_latency_seconds_bucket{node=~"$node", persistentvolumeclaim=~"$persistentvolumeclaim", operation=~"$operation"}[$__rate_interval])) by (le))'
+                    query: 'histogram_quantile(0.99, sum(rate(kme_nfs_vfs_latency_seconds_bucket{node=~"$node", persistentvolumeclaim=~"$persistentvolumeclaim", operation=~"$operation"}[$__rate_interval])) by (le))'
                     minStep: "30s"
                     seriesNameFormat: p99
 

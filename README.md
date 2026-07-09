@@ -10,26 +10,26 @@ All three subsystems are independently enabled/disabled and degrade gracefully i
 
 ## Metrics
 
-All metrics are exported under the `kubevirt_storage_*` prefix.
+VMI-level metrics use the `kubevirt_vmi_storage_*` prefix; exporter-scoped operational and eBPF metrics use the `kme_*` prefix.
 
 ### QMP metrics
 
 | Metric | Type | Labels | Description |
 |--------|------|--------|-------------|
-| `kubevirt_storage_qmp_io_latency_seconds` | histogram | namespace, vmi, node, drive, operation, persistentvolumeclaim | Per-disk I/O latency for KubeVirt VMs |
-| `kubevirt_storage_virtqueue_inuse` | gauge | namespace, vmi, node, drive, persistentvolumeclaim, queue | In-flight descriptors in a virtio-blk virtqueue |
-| `kubevirt_storage_virtqueue_size` | gauge | namespace, vmi, node, drive, persistentvolumeclaim, queue | Capacity (max descriptors) of a virtio-blk virtqueue |
-| `kubevirt_storage_qmp_scrape_errors_total` | counter | | Errors during QMP poll cycles |
-| `kubevirt_storage_qmp_last_poll_timestamp_seconds` | gauge | | Unix timestamp of last QMP poll |
+| `kubevirt_vmi_storage_io_latency_seconds` | histogram | namespace, vmi, node, drive, operation, persistentvolumeclaim | Per-disk I/O latency for KubeVirt VMs |
+| `kubevirt_vmi_storage_queue_inuse` | gauge | namespace, vmi, node, drive, persistentvolumeclaim, queue | In-flight descriptors in a virtio-blk virtqueue |
+| `kubevirt_vmi_storage_queue_size` | gauge | namespace, vmi, node, drive, persistentvolumeclaim, queue | Capacity (max descriptors) of a virtio-blk virtqueue |
+| `kme_qmp_scrape_errors_total` | counter | | Errors during QMP poll cycles |
+| `kme_qmp_last_poll_timestamp_seconds` | gauge | | Unix timestamp of last QMP poll |
 
 ### QGA metrics (guest-side, Windows)
 
 | Metric | Type | Labels | Description |
 |--------|------|--------|-------------|
-| `kubevirt_storage_guest_io_latency_avg_seconds` | gauge | namespace, vmi, node, disk, drive, operation, persistentvolumeclaim | Average guest-side I/O latency per disk (read/write), derived via Little's Law |
-| `kubevirt_storage_guest_io_operations_per_second` | gauge | namespace, vmi, node, disk, drive, operation, persistentvolumeclaim | Guest-side IOPS per disk (read/write) |
-| `kubevirt_storage_qga_scrape_errors_total` | counter | | Errors during QGA poll cycles |
-| `kubevirt_storage_qga_last_poll_timestamp_seconds` | gauge | | Unix timestamp of last QGA poll |
+| `kubevirt_vmi_storage_guest_latency_avg_seconds` | gauge | namespace, vmi, node, disk, drive, operation, persistentvolumeclaim | Average guest-side I/O latency per disk (read/write), derived via Little's Law |
+| `kubevirt_vmi_storage_guest_iops` | gauge | namespace, vmi, node, disk, drive, operation, persistentvolumeclaim | Guest-side IOPS per disk (read/write) |
+| `kme_qga_scrape_errors_total` | counter | | Errors during QGA poll cycles |
+| `kme_qga_last_poll_timestamp_seconds` | gauge | | Unix timestamp of last QGA poll |
 
 The `disk` label contains the raw Windows PhysicalDisk name (e.g. `"1 E:"`). The `drive` and `persistentvolumeclaim` labels are populated by correlating guest disk PCI addresses (from the `guest-get-disks` QGA command) with libvirt domain XML disk aliases (`ua-<volumeName>`), then mapping volume names to PVC claim names via the virt-launcher pod spec. If disk mapping is unavailable (e.g. old guest agent), `drive` and `persistentvolumeclaim` are empty.
 
@@ -39,11 +39,11 @@ The QGA subsystem collects raw Windows Performance Counters (`Win32_PerfRawData_
 
 | Metric | Type | Labels | Description |
 |--------|------|--------|-------------|
-| `kubevirt_storage_block_io_latency_seconds` | histogram | node, namespace, persistentvolumeclaim, pod, operation | Block I/O latency attributed to pod volumes |
-| `kubevirt_storage_system_block_io_latency_seconds` | histogram | node, device, operation | Block I/O latency for system/unresolved devices |
-| `kubevirt_storage_nfs_io_latency_seconds` | histogram | node, namespace, persistentvolumeclaim, pod, operation | NFS I/O latency (tracepoint-based) |
-| `kubevirt_storage_nfs_vfs_latency_seconds` | histogram | node, namespace, persistentvolumeclaim, pod, operation | NFS VFS call latency (kprobe-based) |
-| `kubevirt_storage_subsystem_active` | gauge | subsystem | Whether an eBPF subsystem loaded successfully (1) or not (0) |
+| `kme_block_io_latency_seconds` | histogram | node, namespace, persistentvolumeclaim, pod, operation | Block I/O latency attributed to pod volumes |
+| `kme_system_block_io_latency_seconds` | histogram | node, device, operation | Block I/O latency for system/unresolved devices |
+| `kme_nfs_io_latency_seconds` | histogram | node, namespace, persistentvolumeclaim, pod, operation | NFS I/O latency (tracepoint-based) |
+| `kme_nfs_vfs_latency_seconds` | histogram | node, namespace, persistentvolumeclaim, pod, operation | NFS VFS call latency (kprobe-based) |
+| `kme_subsystem_active` | gauge | subsystem | Whether an eBPF subsystem loaded successfully (1) or not (0) |
 
 ### Example PromQL
 
@@ -51,14 +51,14 @@ P99 write latency per VMI:
 ```promql
 histogram_quantile(0.99,
   sum by (vmi, le) (
-    rate(kubevirt_storage_qmp_io_latency_seconds_bucket{operation="write"}[5m])
+    rate(kubevirt_vmi_storage_io_latency_seconds_bucket{operation="write"}[5m])
   )
 )
 ```
 
 Virtqueue saturation per disk (ratio of in-flight descriptors to capacity):
 ```promql
-kubevirt_storage_virtqueue_inuse / kubevirt_storage_virtqueue_size
+kubevirt_vmi_storage_queue_inuse / kubevirt_vmi_storage_queue_size
 ```
 
 ## Configuration

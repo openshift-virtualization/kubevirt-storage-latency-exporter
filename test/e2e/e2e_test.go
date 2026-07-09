@@ -53,15 +53,15 @@ var _ = Describe("Metrics Exporter", func() {
 		})
 
 		It("should report QMP poll timestamp", func() {
-			Expect(metrics).To(ContainSubstring("kubevirt_storage_qmp_last_poll_timestamp_seconds"))
+			Expect(metrics).To(ContainSubstring("kme_qmp_last_poll_timestamp_seconds"))
 		})
 
 		It("should report zero QMP scrape errors", func() {
-			Expect(metrics).To(ContainSubstring("kubevirt_storage_qmp_scrape_errors_total 0"))
+			Expect(metrics).To(ContainSubstring("kme_qmp_scrape_errors_total 0"))
 		})
 
 		It("should report eBPF subsystem status", func() {
-			Expect(metrics).To(ContainSubstring("kubevirt_storage_subsystem_active"))
+			Expect(metrics).To(ContainSubstring("kme_subsystem_active"))
 		})
 	})
 
@@ -71,7 +71,7 @@ var _ = Describe("Metrics Exporter", func() {
 				metrics, _ := utils.PortForwardAndGet(exporterNamespace, exporterPod, "/metrics")
 				return metrics
 			}, 30*time.Second, 5*time.Second).Should(
-				ContainSubstring(`kubevirt_storage_subsystem_active{subsystem="block"} 1`))
+				ContainSubstring(`kme_subsystem_active{subsystem="block"} 1`))
 		})
 
 		It("should capture system block I/O", func() {
@@ -79,7 +79,7 @@ var _ = Describe("Metrics Exporter", func() {
 				metrics, _ := utils.PortForwardAndGet(exporterNamespace, exporterPod, "/metrics")
 				return metrics
 			}, 60*time.Second, 5*time.Second).Should(
-				ContainSubstring("kubevirt_storage_system_block_io_latency_seconds"))
+				ContainSubstring("kme_system_block_io_latency_seconds"))
 		})
 	})
 
@@ -92,8 +92,8 @@ var _ = Describe("Metrics Exporter", func() {
 		It("should find zero virt-launcher pods without errors", func() {
 			metrics, err := utils.PortForwardAndGet(exporterNamespace, exporterPod, "/metrics")
 			Expect(err).NotTo(HaveOccurred())
-			Expect(metrics).To(ContainSubstring("kubevirt_storage_qmp_scrape_errors_total 0"))
-			Expect(metrics).NotTo(ContainSubstring("kubevirt_storage_qmp_io_latency_seconds"))
+			Expect(metrics).To(ContainSubstring("kme_qmp_scrape_errors_total 0"))
+			Expect(metrics).NotTo(ContainSubstring("kubevirt_vmi_storage_io_latency_seconds"))
 		})
 	})
 })

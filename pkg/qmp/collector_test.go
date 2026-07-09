@@ -271,7 +271,7 @@ var _ = Describe("Collector", func() {
 			var histMetrics []prometheus.Metric
 			for _, m := range metrics {
 				desc := m.Desc().String()
-				if containsString(desc, "kubevirt_storage_qmp_io_latency_seconds") {
+				if containsString(desc, "kubevirt_vmi_storage_io_latency_seconds") {
 					histMetrics = append(histMetrics, m)
 				}
 			}
@@ -444,10 +444,10 @@ var _ = Describe("Collector virtqueue metrics", func() {
 			var inuseMetrics, sizeMetrics []prometheus.Metric
 			for _, m := range metrics {
 				desc := m.Desc().String()
-				if containsString(desc, "virtqueue_inuse") {
+				if containsString(desc, "storage_queue_inuse") {
 					inuseMetrics = append(inuseMetrics, m)
 				}
-				if containsString(desc, "virtqueue_size") {
+				if containsString(desc, "storage_queue_size") {
 					sizeMetrics = append(sizeMetrics, m)
 				}
 			}
@@ -461,7 +461,7 @@ var _ = Describe("Collector virtqueue metrics", func() {
 
 			for _, m := range metrics {
 				desc := m.Desc().String()
-				if !containsString(desc, "virtqueue_inuse") {
+				if !containsString(desc, "storage_queue_inuse") {
 					continue
 				}
 
@@ -504,7 +504,7 @@ var _ = Describe("Collector virtqueue metrics", func() {
 		metrics := collectMetrics()
 		for _, m := range metrics {
 			desc := m.Desc().String()
-			Expect(containsString(desc, "virtqueue")).To(BeFalse())
+			Expect(containsString(desc, "storage_queue")).To(BeFalse())
 		}
 	})
 
@@ -524,12 +524,12 @@ var _ = Describe("Collector virtqueue metrics", func() {
 		metrics := collectMetrics()
 		for _, m := range metrics {
 			desc := m.Desc().String()
-			if containsString(desc, "virtqueue_inuse") {
+			if containsString(desc, "storage_queue_inuse") {
 				d := &dto.Metric{}
 				Expect(m.Write(d)).To(Succeed())
 				Expect(d.GetGauge().GetValue()).To(Equal(0.0))
 			}
-			if containsString(desc, "virtqueue_size") {
+			if containsString(desc, "storage_queue_size") {
 				d := &dto.Metric{}
 				Expect(m.Write(d)).To(Succeed())
 				Expect(d.GetGauge().GetValue()).To(Equal(256.0))

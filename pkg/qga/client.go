@@ -283,21 +283,23 @@ var diskCounterCommand = struct {
 }
 
 // CollectDiskCounters executes the PowerShell command via QGA and parses the output.
-func CollectDiskCounters(ctx context.Context, client *qmp.Client, timeout int32, execWait time.Duration, log *slog.Logger) ([]DiskCounters, error) {
+func CollectDiskCounters(ctx context.Context, client *qmp.Client, timeout int32, execWait time.Duration, log *slog.Logger, vmi string) ([]DiskCounters, error) {
+	execStart := time.Now()
 	pid, err := GuestExec(ctx, client, diskCounterCommand.Path, diskCounterCommand.Args, timeout)
 	if err != nil {
 		return nil, err
 	}
-	log.Debug("qga: guest-exec started", "pid", pid)
+	log.Debug("qga: guest-exec started", "vmi", vmi, "pid", pid)
 
 	result, err := GuestExecWait(ctx, client, pid, timeout, execWait)
 	if err != nil {
 		return nil, err
 	}
 	log.Debug("qga: guest-exec completed",
-		"pid", pid, "exitcode", result.ExitCode,
+		"vmi", vmi, "pid", pid, "exitcode", result.ExitCode,
 		"stdout_bytes", len(result.Stdout), "stderr_bytes", len(result.Stderr),
-		"out_truncated", result.OutTruncated)
+		"out_truncated", result.OutTruncated,
+		"exec_ms", time.Since(execStart).Milliseconds())
 
 	if result.ExitCode != 0 {
 		return nil, fmt.Errorf("powershell exited with code %d: %s", result.ExitCode, string(result.Stderr))

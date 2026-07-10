@@ -373,7 +373,7 @@ func (c *Collector) scrapeVM(ctx context.Context, vs *vmState) (*vmiResult, erro
 		return nil, fmt.Errorf("connection closed")
 	}
 
-	counters, err := CollectDiskCounters(ctx, vs.client, c.cfg.QGATimeout, c.cfg.ExecWait, c.log)
+	counters, err := CollectDiskCounters(ctx, vs.client, c.cfg.QGATimeout, c.cfg.ExecWait, c.log, vs.vmi)
 	if err != nil {
 		return nil, err
 	}

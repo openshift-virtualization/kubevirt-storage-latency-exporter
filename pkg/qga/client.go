@@ -151,10 +151,13 @@ func GuestExecStatus(ctx context.Context, client *qmp.Client, pid int, timeout i
 
 // GuestExecWait polls guest-exec-status until the process exits or maxWait elapses.
 // Returns an error if the process does not exit in time or if the output is truncated.
+// Budget: initial sleep + (maxAttempts-1) retries with execWait between each.
+// With default execWait=1s and maxAttempts=6, total budget is ~6s which covers
+// PowerShell cold starts (~3s) with margin.
 func GuestExecWait(ctx context.Context, client *qmp.Client, pid int, timeout int32, execWait time.Duration) (*ExecResult, error) {
 	time.Sleep(execWait)
 
-	maxAttempts := 3
+	maxAttempts := 6
 	for attempt := 0; attempt < maxAttempts; attempt++ {
 		result, err := GuestExecStatus(ctx, client, pid, timeout)
 		if err != nil {
@@ -265,45 +268,48 @@ func parsePhysicalDriveIndex(name string) (int, bool) {
 	return n, true
 }
 
-// wmicCommand is the wmic command and arguments for collecting disk perf counters.
-var wmicCommand = struct {
+// diskCounterCommand is the PowerShell command for collecting disk perf counters.
+// Uses Get-CimInstance (available on all supported Windows with PowerShell 5.1+)
+// instead of wmic which is deprecated/removed on Windows 11 24H2+ and Server 2025+.
+var diskCounterCommand = struct {
 	Path string
 	Args []string
 }{
-	Path: "cmd.exe",
+	Path: "powershell.exe",
 	Args: []string{
-		"/c", "wmic", "path", "Win32_PerfRawData_PerfDisk_PhysicalDisk",
-		"get", "Name,AvgDiskReadQueueLength,AvgDiskWriteQueueLength,DiskReadsPerSec,DiskWritesPerSec,Timestamp_Sys100NS",
-		"/format:csv",
+		"-NoProfile", "-NonInteractive", "-Command",
+		"Get-CimInstance Win32_PerfRawData_PerfDisk_PhysicalDisk | Select-Object Name,AvgDiskReadQueueLength,AvgDiskWriteQueueLength,DiskReadsPerSec,DiskWritesPerSec,Timestamp_Sys100NS | ConvertTo-Csv -NoTypeInformation",
 	},
 }
 
-// CollectDiskCounters executes the wmic command via QGA and parses the output.
-func CollectDiskCounters(ctx context.Context, client *qmp.Client, timeout int32, execWait time.Duration, log *slog.Logger) ([]DiskCounters, error) {
-	pid, err := GuestExec(ctx, client, wmicCommand.Path, wmicCommand.Args, timeout)
+// CollectDiskCounters executes the PowerShell command via QGA and parses the output.
+func CollectDiskCounters(ctx context.Context, client *qmp.Client, timeout int32, execWait time.Duration, log *slog.Logger, vmi string) ([]DiskCounters, error) {
+	execStart := time.Now()
+	pid, err := GuestExec(ctx, client, diskCounterCommand.Path, diskCounterCommand.Args, timeout)
 	if err != nil {
 		return nil, err
 	}
-	log.Debug("qga: guest-exec started", "pid", pid)
+	log.Debug("qga: guest-exec started", "vmi", vmi, "pid", pid)
 
 	result, err := GuestExecWait(ctx, client, pid, timeout, execWait)
 	if err != nil {
 		return nil, err
 	}
 	log.Debug("qga: guest-exec completed",
-		"pid", pid, "exitcode", result.ExitCode,
+		"vmi", vmi, "pid", pid, "exitcode", result.ExitCode,
 		"stdout_bytes", len(result.Stdout), "stderr_bytes", len(result.Stderr),
-		"out_truncated", result.OutTruncated)
+		"out_truncated", result.OutTruncated,
+		"exec_ms", time.Since(execStart).Milliseconds())
 
 	if result.ExitCode != 0 {
-		return nil, fmt.Errorf("wmic exited with code %d: %s", result.ExitCode, string(result.Stderr))
+		return nil, fmt.Errorf("powershell exited with code %d: %s", result.ExitCode, string(result.Stderr))
 	}
 
 	if len(result.Stdout) == 0 {
-		return nil, fmt.Errorf("wmic produced no output")
+		return nil, fmt.Errorf("powershell produced no output")
 	}
 
-	log.Debug("qga: wmic raw output", "csv", string(result.Stdout))
+	log.Debug("qga: disk counter raw output", "csv", string(result.Stdout))
 
 	return ParseWMICSV(result.Stdout)
 }

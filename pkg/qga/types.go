@@ -35,10 +35,9 @@ var requiredColumns = []string{
 	"timestamp_sys100ns",
 }
 
-// ParseWMICSV parses wmic /format:csv output into DiskCounters.
-// It uses header-based column mapping (case-insensitive) to handle
-// wmic's alphabetical field reordering and the prepended Node column.
-// Rows with Name == "_Total" are skipped.
+// ParseWMICSV parses CSV output (from PowerShell ConvertTo-Csv or wmic /format:csv)
+// into DiskCounters. It uses header-based column mapping (case-insensitive) to handle
+// arbitrary column ordering. Rows with Name == "_Total" are skipped.
 func ParseWMICSV(data []byte) ([]DiskCounters, error) {
 	data = bytes.ReplaceAll(data, []byte("\r\n"), []byte("\n"))
 	data = bytes.TrimSpace(data)

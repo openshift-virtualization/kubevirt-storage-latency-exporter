@@ -133,6 +133,32 @@ func TestParseWMICSV_EmptyInput(t *testing.T) {
 	}
 }
 
+func TestParseWMICSV_PowerShellFormat(t *testing.T) {
+	input := `"Name","AvgDiskReadQueueLength","AvgDiskWriteQueueLength","DiskReadsPerSec","DiskWritesPerSec","Timestamp_Sys100NS"
+"0 C:","336223056","161462865009","42946","752955","134280977011680000"
+"1 E:","63287115","9573783964885","63","610780","134280977011680000"
+"_Total","399944736","9991852395028","43051","3041919","134280977011680000"
+`
+	counters, err := ParseWMICSV([]byte(input))
+	if err != nil {
+		t.Fatalf("ParseWMICSV() error = %v", err)
+	}
+
+	if len(counters) != 2 {
+		t.Fatalf("expected 2 disks (Total excluded), got %d", len(counters))
+	}
+
+	if counters[0].Name != "0 C:" {
+		t.Errorf("expected Name='0 C:', got %q", counters[0].Name)
+	}
+	if counters[0].RdQueueLen != 336223056 {
+		t.Errorf("expected RdQueueLen=336223056, got %d", counters[0].RdQueueLen)
+	}
+	if counters[1].WrQueueLen != 9573783964885 {
+		t.Errorf("expected WrQueueLen=9573783964885, got %d", counters[1].WrQueueLen)
+	}
+}
+
 func TestComputeMetrics_Basic(t *testing.T) {
 	prev := DiskCounters{
 		Name: "0 C:", RdQueueLen: 10000000, WrQueueLen: 20000000,

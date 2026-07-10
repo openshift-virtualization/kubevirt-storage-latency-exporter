@@ -123,14 +123,18 @@ spec:
                 - "10m"
 
     panels:
-      qmp_quantiles:
+      qmp_ratio:
         kind: Panel
         spec:
           display:
-            name: QMP VM Disk Latency
+            name: QEMU to Device
           plugin:
             kind: TimeSeriesChart
             spec:
+              yAxis:
+                show: true
+                format:
+                  unit: percent
               legend:
                 position: bottom
                 mode: table
@@ -143,9 +147,9 @@ spec:
                     datasource:
                       kind: PrometheusDatasource
                       name: thanos-querier
-                    query: 'sum(rate(kubevirt_storage_qmp_io_latency_seconds_count{node=~"$node", namespace=~"$namespace", vmi=~"$vmi", operation=~"$operation", persistentvolumeclaim=~"$persistentvolumeclaim"}[$interval])) - sum(rate(kubevirt_storage_qmp_io_latency_seconds_bucket{le="0.01", node=~"$node", namespace=~"$namespace", vmi=~"$vmi", operation=~"$operation", persistentvolumeclaim=~"$persistentvolumeclaim"}[$interval]))'
+                    query: '(sum by (node) (rate(kubevirt_vmi_storage_io_latency_seconds_count{node=~"$node", namespace=~"$namespace", vmi=~"$vmi", operation=~"$operation", persistentvolumeclaim=~"$persistentvolumeclaim"}[$interval])) - sum by (node) (rate(kubevirt_vmi_storage_io_latency_seconds_bucket{le="0.01", node=~"$node", namespace=~"$namespace", vmi=~"$vmi", operation=~"$operation", persistentvolumeclaim=~"$persistentvolumeclaim"}[$interval]))) / sum by (node) (rate(kubevirt_vmi_storage_io_latency_seconds_count{node=~"$node", namespace=~"$namespace", vmi=~"$vmi", operation=~"$operation", persistentvolumeclaim=~"$persistentvolumeclaim"}[$interval])) * 100'
                     minStep: "30s"
-                    seriesNameFormat: "> 10ms"
+                    seriesNameFormat: "> 10ms ({{node}})"
             - kind: TimeSeriesQuery
               spec:
                 plugin:
@@ -154,9 +158,9 @@ spec:
                     datasource:
                       kind: PrometheusDatasource
                       name: thanos-querier
-                    query: 'sum(rate(kubevirt_storage_qmp_io_latency_seconds_count{node=~"$node", namespace=~"$namespace", vmi=~"$vmi", operation=~"$operation", persistentvolumeclaim=~"$persistentvolumeclaim"}[$interval])) - sum(rate(kubevirt_storage_qmp_io_latency_seconds_bucket{le="0.1", node=~"$node", namespace=~"$namespace", vmi=~"$vmi", operation=~"$operation", persistentvolumeclaim=~"$persistentvolumeclaim"}[$interval]))'
+                    query: '(sum by (node) (rate(kubevirt_vmi_storage_io_latency_seconds_count{node=~"$node", namespace=~"$namespace", vmi=~"$vmi", operation=~"$operation", persistentvolumeclaim=~"$persistentvolumeclaim"}[$interval])) - sum by (node) (rate(kubevirt_vmi_storage_io_latency_seconds_bucket{le="0.1", node=~"$node", namespace=~"$namespace", vmi=~"$vmi", operation=~"$operation", persistentvolumeclaim=~"$persistentvolumeclaim"}[$interval]))) / sum by (node) (rate(kubevirt_vmi_storage_io_latency_seconds_count{node=~"$node", namespace=~"$namespace", vmi=~"$vmi", operation=~"$operation", persistentvolumeclaim=~"$persistentvolumeclaim"}[$interval])) * 100'
                     minStep: "30s"
-                    seriesNameFormat: "> 100ms"
+                    seriesNameFormat: "> 100ms ({{node}})"
             - kind: TimeSeriesQuery
               spec:
                 plugin:
@@ -165,18 +169,22 @@ spec:
                     datasource:
                       kind: PrometheusDatasource
                       name: thanos-querier
-                    query: 'sum(rate(kubevirt_storage_qmp_io_latency_seconds_count{node=~"$node", namespace=~"$namespace", vmi=~"$vmi", operation=~"$operation", persistentvolumeclaim=~"$persistentvolumeclaim"}[$interval])) - sum(rate(kubevirt_storage_qmp_io_latency_seconds_bucket{le="1", node=~"$node", namespace=~"$namespace", vmi=~"$vmi", operation=~"$operation", persistentvolumeclaim=~"$persistentvolumeclaim"}[$interval]))'
+                    query: '(sum by (node) (rate(kubevirt_vmi_storage_io_latency_seconds_count{node=~"$node", namespace=~"$namespace", vmi=~"$vmi", operation=~"$operation", persistentvolumeclaim=~"$persistentvolumeclaim"}[$interval])) - sum by (node) (rate(kubevirt_vmi_storage_io_latency_seconds_bucket{le="1", node=~"$node", namespace=~"$namespace", vmi=~"$vmi", operation=~"$operation", persistentvolumeclaim=~"$persistentvolumeclaim"}[$interval]))) / sum by (node) (rate(kubevirt_vmi_storage_io_latency_seconds_count{node=~"$node", namespace=~"$namespace", vmi=~"$vmi", operation=~"$operation", persistentvolumeclaim=~"$persistentvolumeclaim"}[$interval])) * 100'
                     minStep: "30s"
-                    seriesNameFormat: "> 1s"
+                    seriesNameFormat: "> 1s ({{node}})"
 
-      block_quantiles:
+      qmp_p99:
         kind: Panel
         spec:
           display:
-            name: Block I/O Latency (Pod Volumes)
+            name: QEMU to Device (p99)
           plugin:
             kind: TimeSeriesChart
             spec:
+              yAxis:
+                show: true
+                format:
+                  unit: seconds
               legend:
                 position: bottom
                 mode: table
@@ -189,40 +197,22 @@ spec:
                     datasource:
                       kind: PrometheusDatasource
                       name: thanos-querier
-                    query: 'sum(rate(kubevirt_storage_block_io_latency_seconds_count{node=~"$node", namespace=~"$namespace", operation=~"$operation", persistentvolumeclaim=~"$persistentvolumeclaim"}[$interval]) * on(namespace, pod) group_left() label_replace(kubevirt_vmi_info{name=~"$vmi", node=~"$node"}, "pod", "$1", "vmi_pod", "(.*)")) - sum(rate(kubevirt_storage_block_io_latency_seconds_bucket{le="0.01", node=~"$node", namespace=~"$namespace", operation=~"$operation", persistentvolumeclaim=~"$persistentvolumeclaim"}[$interval]) * on(namespace, pod) group_left() label_replace(kubevirt_vmi_info{name=~"$vmi", node=~"$node"}, "pod", "$1", "vmi_pod", "(.*)"))'
+                    query: 'histogram_quantile(0.99, sum by (node, le) (rate(kubevirt_vmi_storage_io_latency_seconds_bucket{node=~"$node", namespace=~"$namespace", vmi=~"$vmi", operation=~"$operation", persistentvolumeclaim=~"$persistentvolumeclaim"}[$interval])))'
                     minStep: "30s"
-                    seriesNameFormat: "> 10ms"
-            - kind: TimeSeriesQuery
-              spec:
-                plugin:
-                  kind: PrometheusTimeSeriesQuery
-                  spec:
-                    datasource:
-                      kind: PrometheusDatasource
-                      name: thanos-querier
-                    query: 'sum(rate(kubevirt_storage_block_io_latency_seconds_count{node=~"$node", namespace=~"$namespace", operation=~"$operation", persistentvolumeclaim=~"$persistentvolumeclaim"}[$interval]) * on(namespace, pod) group_left() label_replace(kubevirt_vmi_info{name=~"$vmi", node=~"$node"}, "pod", "$1", "vmi_pod", "(.*)")) - sum(rate(kubevirt_storage_block_io_latency_seconds_bucket{le="0.1", node=~"$node", namespace=~"$namespace", operation=~"$operation", persistentvolumeclaim=~"$persistentvolumeclaim"}[$interval]) * on(namespace, pod) group_left() label_replace(kubevirt_vmi_info{name=~"$vmi", node=~"$node"}, "pod", "$1", "vmi_pod", "(.*)"))'
-                    minStep: "30s"
-                    seriesNameFormat: "> 100ms"
-            - kind: TimeSeriesQuery
-              spec:
-                plugin:
-                  kind: PrometheusTimeSeriesQuery
-                  spec:
-                    datasource:
-                      kind: PrometheusDatasource
-                      name: thanos-querier
-                    query: 'sum(rate(kubevirt_storage_block_io_latency_seconds_count{node=~"$node", namespace=~"$namespace", operation=~"$operation", persistentvolumeclaim=~"$persistentvolumeclaim"}[$interval]) * on(namespace, pod) group_left() label_replace(kubevirt_vmi_info{name=~"$vmi", node=~"$node"}, "pod", "$1", "vmi_pod", "(.*)")) - sum(rate(kubevirt_storage_block_io_latency_seconds_bucket{le="1", node=~"$node", namespace=~"$namespace", operation=~"$operation", persistentvolumeclaim=~"$persistentvolumeclaim"}[$interval]) * on(namespace, pod) group_left() label_replace(kubevirt_vmi_info{name=~"$vmi", node=~"$node"}, "pod", "$1", "vmi_pod", "(.*)"))'
-                    minStep: "30s"
-                    seriesNameFormat: "> 1s"
+                    seriesNameFormat: "{{node}}"
 
-      nfs_quantiles:
+      block_ratio:
         kind: Panel
         spec:
           display:
-            name: NFS I/O Latency (Tracepoint)
+            name: Kernel to Device
           plugin:
             kind: TimeSeriesChart
             spec:
+              yAxis:
+                show: true
+                format:
+                  unit: percent
               legend:
                 position: bottom
                 mode: table
@@ -235,9 +225,9 @@ spec:
                     datasource:
                       kind: PrometheusDatasource
                       name: thanos-querier
-                    query: 'sum(rate(kubevirt_storage_nfs_io_latency_seconds_count{node=~"$node", namespace=~"$namespace", operation=~"$operation", persistentvolumeclaim=~"$persistentvolumeclaim"}[$interval]) * on(namespace, pod) group_left() label_replace(kubevirt_vmi_info{name=~"$vmi", node=~"$node"}, "pod", "$1", "vmi_pod", "(.*)")) - sum(rate(kubevirt_storage_nfs_io_latency_seconds_bucket{le="0.01", node=~"$node", namespace=~"$namespace", operation=~"$operation", persistentvolumeclaim=~"$persistentvolumeclaim"}[$interval]) * on(namespace, pod) group_left() label_replace(kubevirt_vmi_info{name=~"$vmi", node=~"$node"}, "pod", "$1", "vmi_pod", "(.*)"))'
+                    query: '(sum by (node) (rate(kme_block_io_latency_seconds_count{node=~"$node", namespace=~"$namespace", operation=~"$operation", persistentvolumeclaim=~"$persistentvolumeclaim"}[$interval]) * on(namespace, pod) group_left() label_replace(kubevirt_vmi_info{name=~"$vmi", node=~"$node"}, "pod", "$1", "vmi_pod", "(.*)")) - sum by (node) (rate(kme_block_io_latency_seconds_bucket{le="0.01", node=~"$node", namespace=~"$namespace", operation=~"$operation", persistentvolumeclaim=~"$persistentvolumeclaim"}[$interval]) * on(namespace, pod) group_left() label_replace(kubevirt_vmi_info{name=~"$vmi", node=~"$node"}, "pod", "$1", "vmi_pod", "(.*)"))) / sum by (node) (rate(kme_block_io_latency_seconds_count{node=~"$node", namespace=~"$namespace", operation=~"$operation", persistentvolumeclaim=~"$persistentvolumeclaim"}[$interval]) * on(namespace, pod) group_left() label_replace(kubevirt_vmi_info{name=~"$vmi", node=~"$node"}, "pod", "$1", "vmi_pod", "(.*)")) * 100'
                     minStep: "30s"
-                    seriesNameFormat: "> 10ms"
+                    seriesNameFormat: "> 10ms ({{node}})"
             - kind: TimeSeriesQuery
               spec:
                 plugin:
@@ -246,9 +236,9 @@ spec:
                     datasource:
                       kind: PrometheusDatasource
                       name: thanos-querier
-                    query: 'sum(rate(kubevirt_storage_nfs_io_latency_seconds_count{node=~"$node", namespace=~"$namespace", operation=~"$operation", persistentvolumeclaim=~"$persistentvolumeclaim"}[$interval]) * on(namespace, pod) group_left() label_replace(kubevirt_vmi_info{name=~"$vmi", node=~"$node"}, "pod", "$1", "vmi_pod", "(.*)")) - sum(rate(kubevirt_storage_nfs_io_latency_seconds_bucket{le="0.1", node=~"$node", namespace=~"$namespace", operation=~"$operation", persistentvolumeclaim=~"$persistentvolumeclaim"}[$interval]) * on(namespace, pod) group_left() label_replace(kubevirt_vmi_info{name=~"$vmi", node=~"$node"}, "pod", "$1", "vmi_pod", "(.*)"))'
+                    query: '(sum by (node) (rate(kme_block_io_latency_seconds_count{node=~"$node", namespace=~"$namespace", operation=~"$operation", persistentvolumeclaim=~"$persistentvolumeclaim"}[$interval]) * on(namespace, pod) group_left() label_replace(kubevirt_vmi_info{name=~"$vmi", node=~"$node"}, "pod", "$1", "vmi_pod", "(.*)")) - sum by (node) (rate(kme_block_io_latency_seconds_bucket{le="0.1", node=~"$node", namespace=~"$namespace", operation=~"$operation", persistentvolumeclaim=~"$persistentvolumeclaim"}[$interval]) * on(namespace, pod) group_left() label_replace(kubevirt_vmi_info{name=~"$vmi", node=~"$node"}, "pod", "$1", "vmi_pod", "(.*)"))) / sum by (node) (rate(kme_block_io_latency_seconds_count{node=~"$node", namespace=~"$namespace", operation=~"$operation", persistentvolumeclaim=~"$persistentvolumeclaim"}[$interval]) * on(namespace, pod) group_left() label_replace(kubevirt_vmi_info{name=~"$vmi", node=~"$node"}, "pod", "$1", "vmi_pod", "(.*)")) * 100'
                     minStep: "30s"
-                    seriesNameFormat: "> 100ms"
+                    seriesNameFormat: "> 100ms ({{node}})"
             - kind: TimeSeriesQuery
               spec:
                 plugin:
@@ -257,18 +247,22 @@ spec:
                     datasource:
                       kind: PrometheusDatasource
                       name: thanos-querier
-                    query: 'sum(rate(kubevirt_storage_nfs_io_latency_seconds_count{node=~"$node", namespace=~"$namespace", operation=~"$operation", persistentvolumeclaim=~"$persistentvolumeclaim"}[$interval]) * on(namespace, pod) group_left() label_replace(kubevirt_vmi_info{name=~"$vmi", node=~"$node"}, "pod", "$1", "vmi_pod", "(.*)")) - sum(rate(kubevirt_storage_nfs_io_latency_seconds_bucket{le="1", node=~"$node", namespace=~"$namespace", operation=~"$operation", persistentvolumeclaim=~"$persistentvolumeclaim"}[$interval]) * on(namespace, pod) group_left() label_replace(kubevirt_vmi_info{name=~"$vmi", node=~"$node"}, "pod", "$1", "vmi_pod", "(.*)"))'
+                    query: '(sum by (node) (rate(kme_block_io_latency_seconds_count{node=~"$node", namespace=~"$namespace", operation=~"$operation", persistentvolumeclaim=~"$persistentvolumeclaim"}[$interval]) * on(namespace, pod) group_left() label_replace(kubevirt_vmi_info{name=~"$vmi", node=~"$node"}, "pod", "$1", "vmi_pod", "(.*)")) - sum by (node) (rate(kme_block_io_latency_seconds_bucket{le="1", node=~"$node", namespace=~"$namespace", operation=~"$operation", persistentvolumeclaim=~"$persistentvolumeclaim"}[$interval]) * on(namespace, pod) group_left() label_replace(kubevirt_vmi_info{name=~"$vmi", node=~"$node"}, "pod", "$1", "vmi_pod", "(.*)"))) / sum by (node) (rate(kme_block_io_latency_seconds_count{node=~"$node", namespace=~"$namespace", operation=~"$operation", persistentvolumeclaim=~"$persistentvolumeclaim"}[$interval]) * on(namespace, pod) group_left() label_replace(kubevirt_vmi_info{name=~"$vmi", node=~"$node"}, "pod", "$1", "vmi_pod", "(.*)")) * 100'
                     minStep: "30s"
-                    seriesNameFormat: "> 1s"
+                    seriesNameFormat: "> 1s ({{node}})"
 
-      nfs_vfs_quantiles:
+      block_p99:
         kind: Panel
         spec:
           display:
-            name: NFS VFS Latency (Kprobe)
+            name: Kernel to Device (p99)
           plugin:
             kind: TimeSeriesChart
             spec:
+              yAxis:
+                show: true
+                format:
+                  unit: seconds
               legend:
                 position: bottom
                 mode: table
@@ -281,9 +275,26 @@ spec:
                     datasource:
                       kind: PrometheusDatasource
                       name: thanos-querier
-                    query: 'sum(rate(kubevirt_storage_nfs_vfs_latency_seconds_count{node=~"$node", namespace=~"$namespace", operation=~"$operation", persistentvolumeclaim=~"$persistentvolumeclaim"}[$interval]) * on(namespace, pod) group_left() label_replace(kubevirt_vmi_info{name=~"$vmi", node=~"$node"}, "pod", "$1", "vmi_pod", "(.*)")) - sum(rate(kubevirt_storage_nfs_vfs_latency_seconds_bucket{le="0.01", node=~"$node", namespace=~"$namespace", operation=~"$operation", persistentvolumeclaim=~"$persistentvolumeclaim"}[$interval]) * on(namespace, pod) group_left() label_replace(kubevirt_vmi_info{name=~"$vmi", node=~"$node"}, "pod", "$1", "vmi_pod", "(.*)"))'
+                    query: 'histogram_quantile(0.99, sum by (node, le) (rate(kme_block_io_latency_seconds_bucket{node=~"$node", namespace=~"$namespace", operation=~"$operation", persistentvolumeclaim=~"$persistentvolumeclaim"}[$interval]) * on(namespace, pod) group_left() label_replace(kubevirt_vmi_info{name=~"$vmi", node=~"$node"}, "pod", "$1", "vmi_pod", "(.*)")))'
                     minStep: "30s"
-                    seriesNameFormat: "> 10ms"
+                    seriesNameFormat: "{{node}}"
+
+      nfs_ratio:
+        kind: Panel
+        spec:
+          display:
+            name: NFS Client to Server
+          plugin:
+            kind: TimeSeriesChart
+            spec:
+              yAxis:
+                show: true
+                format:
+                  unit: percent
+              legend:
+                position: bottom
+                mode: table
+          queries:
             - kind: TimeSeriesQuery
               spec:
                 plugin:
@@ -292,9 +303,9 @@ spec:
                     datasource:
                       kind: PrometheusDatasource
                       name: thanos-querier
-                    query: 'sum(rate(kubevirt_storage_nfs_vfs_latency_seconds_count{node=~"$node", namespace=~"$namespace", operation=~"$operation", persistentvolumeclaim=~"$persistentvolumeclaim"}[$interval]) * on(namespace, pod) group_left() label_replace(kubevirt_vmi_info{name=~"$vmi", node=~"$node"}, "pod", "$1", "vmi_pod", "(.*)")) - sum(rate(kubevirt_storage_nfs_vfs_latency_seconds_bucket{le="0.1", node=~"$node", namespace=~"$namespace", operation=~"$operation", persistentvolumeclaim=~"$persistentvolumeclaim"}[$interval]) * on(namespace, pod) group_left() label_replace(kubevirt_vmi_info{name=~"$vmi", node=~"$node"}, "pod", "$1", "vmi_pod", "(.*)"))'
+                    query: '(sum by (node) (rate(kme_nfs_io_latency_seconds_count{node=~"$node", namespace=~"$namespace", operation=~"$operation", persistentvolumeclaim=~"$persistentvolumeclaim"}[$interval]) * on(namespace, pod) group_left() label_replace(kubevirt_vmi_info{name=~"$vmi", node=~"$node"}, "pod", "$1", "vmi_pod", "(.*)")) - sum by (node) (rate(kme_nfs_io_latency_seconds_bucket{le="0.01", node=~"$node", namespace=~"$namespace", operation=~"$operation", persistentvolumeclaim=~"$persistentvolumeclaim"}[$interval]) * on(namespace, pod) group_left() label_replace(kubevirt_vmi_info{name=~"$vmi", node=~"$node"}, "pod", "$1", "vmi_pod", "(.*)"))) / sum by (node) (rate(kme_nfs_io_latency_seconds_count{node=~"$node", namespace=~"$namespace", operation=~"$operation", persistentvolumeclaim=~"$persistentvolumeclaim"}[$interval]) * on(namespace, pod) group_left() label_replace(kubevirt_vmi_info{name=~"$vmi", node=~"$node"}, "pod", "$1", "vmi_pod", "(.*)")) * 100'
                     minStep: "30s"
-                    seriesNameFormat: "> 100ms"
+                    seriesNameFormat: "> 10ms ({{node}})"
             - kind: TimeSeriesQuery
               spec:
                 plugin:
@@ -303,29 +314,180 @@ spec:
                     datasource:
                       kind: PrometheusDatasource
                       name: thanos-querier
-                    query: 'sum(rate(kubevirt_storage_nfs_vfs_latency_seconds_count{node=~"$node", namespace=~"$namespace", operation=~"$operation", persistentvolumeclaim=~"$persistentvolumeclaim"}[$interval]) * on(namespace, pod) group_left() label_replace(kubevirt_vmi_info{name=~"$vmi", node=~"$node"}, "pod", "$1", "vmi_pod", "(.*)")) - sum(rate(kubevirt_storage_nfs_vfs_latency_seconds_bucket{le="1", node=~"$node", namespace=~"$namespace", operation=~"$operation", persistentvolumeclaim=~"$persistentvolumeclaim"}[$interval]) * on(namespace, pod) group_left() label_replace(kubevirt_vmi_info{name=~"$vmi", node=~"$node"}, "pod", "$1", "vmi_pod", "(.*)"))'
+                    query: '(sum by (node) (rate(kme_nfs_io_latency_seconds_count{node=~"$node", namespace=~"$namespace", operation=~"$operation", persistentvolumeclaim=~"$persistentvolumeclaim"}[$interval]) * on(namespace, pod) group_left() label_replace(kubevirt_vmi_info{name=~"$vmi", node=~"$node"}, "pod", "$1", "vmi_pod", "(.*)")) - sum by (node) (rate(kme_nfs_io_latency_seconds_bucket{le="0.1", node=~"$node", namespace=~"$namespace", operation=~"$operation", persistentvolumeclaim=~"$persistentvolumeclaim"}[$interval]) * on(namespace, pod) group_left() label_replace(kubevirt_vmi_info{name=~"$vmi", node=~"$node"}, "pod", "$1", "vmi_pod", "(.*)"))) / sum by (node) (rate(kme_nfs_io_latency_seconds_count{node=~"$node", namespace=~"$namespace", operation=~"$operation", persistentvolumeclaim=~"$persistentvolumeclaim"}[$interval]) * on(namespace, pod) group_left() label_replace(kubevirt_vmi_info{name=~"$vmi", node=~"$node"}, "pod", "$1", "vmi_pod", "(.*)")) * 100'
                     minStep: "30s"
-                    seriesNameFormat: "> 1s"
+                    seriesNameFormat: "> 100ms ({{node}})"
+            - kind: TimeSeriesQuery
+              spec:
+                plugin:
+                  kind: PrometheusTimeSeriesQuery
+                  spec:
+                    datasource:
+                      kind: PrometheusDatasource
+                      name: thanos-querier
+                    query: '(sum by (node) (rate(kme_nfs_io_latency_seconds_count{node=~"$node", namespace=~"$namespace", operation=~"$operation", persistentvolumeclaim=~"$persistentvolumeclaim"}[$interval]) * on(namespace, pod) group_left() label_replace(kubevirt_vmi_info{name=~"$vmi", node=~"$node"}, "pod", "$1", "vmi_pod", "(.*)")) - sum by (node) (rate(kme_nfs_io_latency_seconds_bucket{le="1", node=~"$node", namespace=~"$namespace", operation=~"$operation", persistentvolumeclaim=~"$persistentvolumeclaim"}[$interval]) * on(namespace, pod) group_left() label_replace(kubevirt_vmi_info{name=~"$vmi", node=~"$node"}, "pod", "$1", "vmi_pod", "(.*)"))) / sum by (node) (rate(kme_nfs_io_latency_seconds_count{node=~"$node", namespace=~"$namespace", operation=~"$operation", persistentvolumeclaim=~"$persistentvolumeclaim"}[$interval]) * on(namespace, pod) group_left() label_replace(kubevirt_vmi_info{name=~"$vmi", node=~"$node"}, "pod", "$1", "vmi_pod", "(.*)")) * 100'
+                    minStep: "30s"
+                    seriesNameFormat: "> 1s ({{node}})"
+
+      nfs_p99:
+        kind: Panel
+        spec:
+          display:
+            name: NFS Client to Server (p99)
+          plugin:
+            kind: TimeSeriesChart
+            spec:
+              yAxis:
+                show: true
+                format:
+                  unit: seconds
+              legend:
+                position: bottom
+                mode: table
+          queries:
+            - kind: TimeSeriesQuery
+              spec:
+                plugin:
+                  kind: PrometheusTimeSeriesQuery
+                  spec:
+                    datasource:
+                      kind: PrometheusDatasource
+                      name: thanos-querier
+                    query: 'histogram_quantile(0.99, sum by (node, le) (rate(kme_nfs_io_latency_seconds_bucket{node=~"$node", namespace=~"$namespace", operation=~"$operation", persistentvolumeclaim=~"$persistentvolumeclaim"}[$interval]) * on(namespace, pod) group_left() label_replace(kubevirt_vmi_info{name=~"$vmi", node=~"$node"}, "pod", "$1", "vmi_pod", "(.*)")))'
+                    minStep: "30s"
+                    seriesNameFormat: "{{node}}"
+
+      nfs_vfs_ratio:
+        kind: Panel
+        spec:
+          display:
+            name: VFS to NFS Server
+          plugin:
+            kind: TimeSeriesChart
+            spec:
+              yAxis:
+                show: true
+                format:
+                  unit: percent
+              legend:
+                position: bottom
+                mode: table
+          queries:
+            - kind: TimeSeriesQuery
+              spec:
+                plugin:
+                  kind: PrometheusTimeSeriesQuery
+                  spec:
+                    datasource:
+                      kind: PrometheusDatasource
+                      name: thanos-querier
+                    query: '(sum by (node) (rate(kme_nfs_vfs_latency_seconds_count{node=~"$node", namespace=~"$namespace", operation=~"$operation", persistentvolumeclaim=~"$persistentvolumeclaim"}[$interval]) * on(namespace, pod) group_left() label_replace(kubevirt_vmi_info{name=~"$vmi", node=~"$node"}, "pod", "$1", "vmi_pod", "(.*)")) - sum by (node) (rate(kme_nfs_vfs_latency_seconds_bucket{le="0.01", node=~"$node", namespace=~"$namespace", operation=~"$operation", persistentvolumeclaim=~"$persistentvolumeclaim"}[$interval]) * on(namespace, pod) group_left() label_replace(kubevirt_vmi_info{name=~"$vmi", node=~"$node"}, "pod", "$1", "vmi_pod", "(.*)"))) / sum by (node) (rate(kme_nfs_vfs_latency_seconds_count{node=~"$node", namespace=~"$namespace", operation=~"$operation", persistentvolumeclaim=~"$persistentvolumeclaim"}[$interval]) * on(namespace, pod) group_left() label_replace(kubevirt_vmi_info{name=~"$vmi", node=~"$node"}, "pod", "$1", "vmi_pod", "(.*)")) * 100'
+                    minStep: "30s"
+                    seriesNameFormat: "> 10ms ({{node}})"
+            - kind: TimeSeriesQuery
+              spec:
+                plugin:
+                  kind: PrometheusTimeSeriesQuery
+                  spec:
+                    datasource:
+                      kind: PrometheusDatasource
+                      name: thanos-querier
+                    query: '(sum by (node) (rate(kme_nfs_vfs_latency_seconds_count{node=~"$node", namespace=~"$namespace", operation=~"$operation", persistentvolumeclaim=~"$persistentvolumeclaim"}[$interval]) * on(namespace, pod) group_left() label_replace(kubevirt_vmi_info{name=~"$vmi", node=~"$node"}, "pod", "$1", "vmi_pod", "(.*)")) - sum by (node) (rate(kme_nfs_vfs_latency_seconds_bucket{le="0.1", node=~"$node", namespace=~"$namespace", operation=~"$operation", persistentvolumeclaim=~"$persistentvolumeclaim"}[$interval]) * on(namespace, pod) group_left() label_replace(kubevirt_vmi_info{name=~"$vmi", node=~"$node"}, "pod", "$1", "vmi_pod", "(.*)"))) / sum by (node) (rate(kme_nfs_vfs_latency_seconds_count{node=~"$node", namespace=~"$namespace", operation=~"$operation", persistentvolumeclaim=~"$persistentvolumeclaim"}[$interval]) * on(namespace, pod) group_left() label_replace(kubevirt_vmi_info{name=~"$vmi", node=~"$node"}, "pod", "$1", "vmi_pod", "(.*)")) * 100'
+                    minStep: "30s"
+                    seriesNameFormat: "> 100ms ({{node}})"
+            - kind: TimeSeriesQuery
+              spec:
+                plugin:
+                  kind: PrometheusTimeSeriesQuery
+                  spec:
+                    datasource:
+                      kind: PrometheusDatasource
+                      name: thanos-querier
+                    query: '(sum by (node) (rate(kme_nfs_vfs_latency_seconds_count{node=~"$node", namespace=~"$namespace", operation=~"$operation", persistentvolumeclaim=~"$persistentvolumeclaim"}[$interval]) * on(namespace, pod) group_left() label_replace(kubevirt_vmi_info{name=~"$vmi", node=~"$node"}, "pod", "$1", "vmi_pod", "(.*)")) - sum by (node) (rate(kme_nfs_vfs_latency_seconds_bucket{le="1", node=~"$node", namespace=~"$namespace", operation=~"$operation", persistentvolumeclaim=~"$persistentvolumeclaim"}[$interval]) * on(namespace, pod) group_left() label_replace(kubevirt_vmi_info{name=~"$vmi", node=~"$node"}, "pod", "$1", "vmi_pod", "(.*)"))) / sum by (node) (rate(kme_nfs_vfs_latency_seconds_count{node=~"$node", namespace=~"$namespace", operation=~"$operation", persistentvolumeclaim=~"$persistentvolumeclaim"}[$interval]) * on(namespace, pod) group_left() label_replace(kubevirt_vmi_info{name=~"$vmi", node=~"$node"}, "pod", "$1", "vmi_pod", "(.*)")) * 100'
+                    minStep: "30s"
+                    seriesNameFormat: "> 1s ({{node}})"
+
+      nfs_vfs_p99:
+        kind: Panel
+        spec:
+          display:
+            name: VFS to NFS Server (p99)
+          plugin:
+            kind: TimeSeriesChart
+            spec:
+              yAxis:
+                show: true
+                format:
+                  unit: seconds
+              legend:
+                position: bottom
+                mode: table
+          queries:
+            - kind: TimeSeriesQuery
+              spec:
+                plugin:
+                  kind: PrometheusTimeSeriesQuery
+                  spec:
+                    datasource:
+                      kind: PrometheusDatasource
+                      name: thanos-querier
+                    query: 'histogram_quantile(0.99, sum by (node, le) (rate(kme_nfs_vfs_latency_seconds_bucket{node=~"$node", namespace=~"$namespace", operation=~"$operation", persistentvolumeclaim=~"$persistentvolumeclaim"}[$interval]) * on(namespace, pod) group_left() label_replace(kubevirt_vmi_info{name=~"$vmi", node=~"$node"}, "pod", "$1", "vmi_pod", "(.*)")))'
+                    minStep: "30s"
+                    seriesNameFormat: "{{node}}"
+
+      virtqueue_utilization:
+        kind: Panel
+        spec:
+          display:
+            name: Virtqueue Utilization
+          plugin:
+            kind: TimeSeriesChart
+            spec:
+              yAxis:
+                show: true
+                format:
+                  unit: percent
+              legend:
+                position: bottom
+                mode: table
+          queries:
+            - kind: TimeSeriesQuery
+              spec:
+                plugin:
+                  kind: PrometheusTimeSeriesQuery
+                  spec:
+                    datasource:
+                      kind: PrometheusDatasource
+                      name: thanos-querier
+                    query: 'sum by (node) (kubevirt_vmi_storage_queue_inuse{node=~"$node", namespace=~"$namespace", vmi=~"$vmi", persistentvolumeclaim=~"$persistentvolumeclaim"}) / sum by (node) (kubevirt_vmi_storage_queue_size{node=~"$node", namespace=~"$namespace", vmi=~"$vmi", persistentvolumeclaim=~"$persistentvolumeclaim"}) * 100'
+                    minStep: "30s"
+                    seriesNameFormat: "{{node}}"
 
     layouts:
       - kind: Grid
         spec:
           display:
-            title: QMP VM Disk Latency
+            title: QEMU to Device
             collapse:
               open: true
           items:
             - x: 0
               "y": 0
-              width: 24
+              width: 12
               height: 8
               content:
-                $ref: '#/spec/panels/qmp_quantiles'
+                $ref: '#/spec/panels/qmp_ratio'
+            - x: 12
+              "y": 0
+              width: 12
+              height: 8
+              content:
+                $ref: '#/spec/panels/qmp_p99'
 
       - kind: Grid
         spec:
           display:
-            title: Block I/O (Pod Volumes)
+            title: Virtqueue Utilization
             collapse:
               open: true
           items:
@@ -334,32 +496,64 @@ spec:
               width: 24
               height: 8
               content:
-                $ref: '#/spec/panels/block_quantiles'
+                $ref: '#/spec/panels/virtqueue_utilization'
 
       - kind: Grid
         spec:
           display:
-            title: NFS I/O (Tracepoint)
+            title: Kernel to Device
             collapse:
               open: true
           items:
             - x: 0
               "y": 0
-              width: 24
+              width: 12
               height: 8
               content:
-                $ref: '#/spec/panels/nfs_quantiles'
+                $ref: '#/spec/panels/block_ratio'
+            - x: 12
+              "y": 0
+              width: 12
+              height: 8
+              content:
+                $ref: '#/spec/panels/block_p99'
 
       - kind: Grid
         spec:
           display:
-            title: NFS VFS Latency (Kprobe)
+            title: NFS Client to Server
             collapse:
               open: true
           items:
             - x: 0
               "y": 0
-              width: 24
+              width: 12
               height: 8
               content:
-                $ref: '#/spec/panels/nfs_vfs_quantiles'
+                $ref: '#/spec/panels/nfs_ratio'
+            - x: 12
+              "y": 0
+              width: 12
+              height: 8
+              content:
+                $ref: '#/spec/panels/nfs_p99'
+
+      - kind: Grid
+        spec:
+          display:
+            title: VFS to NFS Server
+            collapse:
+              open: true
+          items:
+            - x: 0
+              "y": 0
+              width: 12
+              height: 8
+              content:
+                $ref: '#/spec/panels/nfs_vfs_ratio'
+            - x: 12
+              "y": 0
+              width: 12
+              height: 8
+              content:
+                $ref: '#/spec/panels/nfs_vfs_p99'

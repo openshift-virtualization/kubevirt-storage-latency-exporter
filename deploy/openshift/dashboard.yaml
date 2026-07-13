@@ -435,6 +435,61 @@ spec:
                     minStep: "30s"
                     seriesNameFormat: "{{node}}"
 
+      qga_latency:
+        kind: Panel
+        spec:
+          display:
+            name: Windows Guest to Device
+          plugin:
+            kind: TimeSeriesChart
+            spec:
+              yAxis:
+                show: true
+                format:
+                  unit: seconds
+              legend:
+                position: bottom
+                mode: table
+          queries:
+            - kind: TimeSeriesQuery
+              spec:
+                plugin:
+                  kind: PrometheusTimeSeriesQuery
+                  spec:
+                    datasource:
+                      kind: PrometheusDatasource
+                      name: thanos-querier
+                    query: 'avg by (node) (kubevirt_vmi_storage_guest_latency_avg_seconds{node=~"$node", namespace=~"$namespace", vmi=~"$vmi", operation=~"$operation", persistentvolumeclaim=~"$persistentvolumeclaim"})'
+                    minStep: "30s"
+                    seriesNameFormat: "{{node}}"
+
+      qga_iops:
+        kind: Panel
+        spec:
+          display:
+            name: Windows Guest IOPs
+          plugin:
+            kind: TimeSeriesChart
+            spec:
+              yAxis:
+                show: true
+                label: IOPs
+              legend:
+                position: bottom
+                mode: table
+          queries:
+            - kind: TimeSeriesQuery
+              spec:
+                plugin:
+                  kind: PrometheusTimeSeriesQuery
+                  spec:
+                    datasource:
+                      kind: PrometheusDatasource
+                      name: thanos-querier
+                    query: 'sum by (node) (kubevirt_vmi_storage_guest_iops{node=~"$node", namespace=~"$namespace", vmi=~"$vmi", operation=~"$operation", persistentvolumeclaim=~"$persistentvolumeclaim"})'
+                    minStep: "30s"
+                    seriesNameFormat: "{{node}}"
+
       virtqueue_utilization:
         kind: Panel
         spec:
@@ -483,6 +538,26 @@ spec:
               height: 8
               content:
                 $ref: '#/spec/panels/qmp_p99'
+
+      - kind: Grid
+        spec:
+          display:
+            title: Windows Guest (QGA)
+            collapse:
+              open: true
+          items:
+            - x: 0
+              "y": 0
+              width: 12
+              height: 8
+              content:
+                $ref: '#/spec/panels/qga_latency'
+            - x: 12
+              "y": 0
+              width: 12
+              height: 8
+              content:
+                $ref: '#/spec/panels/qga_iops'
 
       - kind: Grid
         spec:

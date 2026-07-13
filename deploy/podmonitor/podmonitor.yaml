@@ -6,6 +6,7 @@ metadata:
   labels:
     app: kubevirt-metrics-exporter
 spec:
+  jobLabel: app
   selector:
     matchLabels:
       app: kubevirt-metrics-exporter

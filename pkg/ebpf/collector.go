@@ -195,22 +195,17 @@ func (c *Collector) collectNFS(ch chan<- prometheus.Metric) {
 		}
 
 		info, resolved := c.resolver.Lookup(key.Dev)
-		ns := ""
-		pvc := ""
-		podName := ""
-		if resolved {
-			if !c.namespaceAllowed(info.Namespace) {
-				continue
-			}
-			ns = info.Namespace
-			pvc = info.PVCName
-			podName = info.PodName
+		if !resolved {
+			continue
+		}
+		if !c.namespaceAllowed(info.Namespace) {
+			continue
 		}
 
 		m, err := prometheus.NewConstHistogram(
 			nfsDesc,
 			count, sum, buckets,
-			c.nodeName, ns, pvc, podName, opLabels[key.Op],
+			c.nodeName, info.Namespace, info.PVCName, info.PodName, opLabels[key.Op],
 		)
 		if err != nil {
 			c.log.Error("creating NFS histogram metric", "error", err)
@@ -239,22 +234,17 @@ func (c *Collector) collectNFSKprobe(ch chan<- prometheus.Metric) {
 		}
 
 		info, resolved := c.resolver.Lookup(key.Dev)
-		ns := ""
-		pvc := ""
-		podName := ""
-		if resolved {
-			if !c.namespaceAllowed(info.Namespace) {
-				continue
-			}
-			ns = info.Namespace
-			pvc = info.PVCName
-			podName = info.PodName
+		if !resolved {
+			continue
+		}
+		if !c.namespaceAllowed(info.Namespace) {
+			continue
 		}
 
 		m, err := prometheus.NewConstHistogram(
 			nfsVfsDesc,
 			count, sum, buckets,
-			c.nodeName, ns, pvc, podName, nfsVfsOpLabels[key.Op],
+			c.nodeName, info.Namespace, info.PVCName, info.PodName, nfsVfsOpLabels[key.Op],
 		)
 		if err != nil {
 			c.log.Error("creating NFS VFS histogram metric", "error", err)

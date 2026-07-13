@@ -11,7 +11,7 @@ spec:
       name: KubeVirt Storage Latency
       description: Storage I/O latency from QMP and eBPF subsystems
     duration: 1h
-    refreshInterval: 30s
+
 
     variables:
       - kind: ListVariable

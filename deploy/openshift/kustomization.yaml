@@ -5,6 +5,8 @@ resources:
 - ../podmonitor
 - scc.yaml
 - scc-role.yaml
+- datasource.yaml
+- dashboard.yaml
 patches:
 - patch: |
     apiVersion: v1

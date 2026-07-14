@@ -1,8 +1,16 @@
 package qmp
 
 import (
+	"context"
+	"log/slog"
+
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	dynamicfake "k8s.io/client-go/dynamic/fake"
 )
 
 const testDomainXML = `<domain type='kvm'>
@@ -186,5 +194,70 @@ var _ = Describe("ParseDiskLocations", func() {
 
 		sataLoc := DiskLocation{Controller: PCIAddr{Domain: 0, Bus: 0, Slot: 31, Function: 2}, Target: 0, Unit: 1}
 		Expect(result[sataLoc]).To(Equal("sata-vol"))
+	})
+})
+
+var _ = Describe("FetchPVCMap", func() {
+	It("should extract PVC claim names from VMI volumeStatus", func() {
+		vmi := &unstructured.Unstructured{
+			Object: map[string]interface{}{
+				"apiVersion": "kubevirt.io/v1",
+				"kind":       "VirtualMachineInstance",
+				"metadata": map[string]interface{}{
+					"name":      "test-vm",
+					"namespace": "default",
+				},
+				"status": map[string]interface{}{
+					"volumeStatus": []interface{}{
+						map[string]interface{}{
+							"name": "rootdisk",
+							"persistentVolumeClaimInfo": map[string]interface{}{
+								"claimName": "root-pvc",
+							},
+						},
+						map[string]interface{}{
+							"name": "datadisk",
+							"persistentVolumeClaimInfo": map[string]interface{}{
+								"claimName": "data-pvc",
+							},
+						},
+						map[string]interface{}{
+							"name":   "cloudinit",
+							"reason": "no pvc",
+						},
+					},
+				},
+			},
+		}
+
+		scheme := runtime.NewScheme()
+		client := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme,
+			map[schema.GroupVersionResource]string{
+				vmiResource: "VirtualMachineInstanceList",
+			},
+			vmi,
+		)
+
+		result := FetchPVCMap(context.Background(), client, "default", "test-vm", slog.Default())
+		Expect(result).To(HaveLen(2))
+		Expect(result["rootdisk"]).To(Equal("root-pvc"))
+		Expect(result["datadisk"]).To(Equal("data-pvc"))
+	})
+
+	It("should return empty map for nil client", func() {
+		result := FetchPVCMap(context.Background(), nil, "default", "test-vm", slog.Default())
+		Expect(result).To(BeEmpty())
+	})
+
+	It("should return empty map when VMI is not found", func() {
+		scheme := runtime.NewScheme()
+		client := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme,
+			map[schema.GroupVersionResource]string{
+				vmiResource: "VirtualMachineInstanceList",
+			},
+		)
+
+		result := FetchPVCMap(context.Background(), client, "default", "nonexistent", slog.Default())
+		Expect(result).To(BeEmpty())
 	})
 })

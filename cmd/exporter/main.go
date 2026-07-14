@@ -14,6 +14,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
@@ -50,11 +51,11 @@ func main() {
 	stores := startInformers(ctx, cfg.NodeName, log)
 
 	if cfg.EnableQMP {
-		startQMP(ctx, cfg, stores.podStore, log)
+		startQMP(ctx, cfg, stores.podStore, stores.dynClient, log)
 	}
 
 	if cfg.EnableQGA {
-		startQGA(ctx, cfg, stores.podStore, log)
+		startQGA(ctx, cfg, stores.podStore, stores.dynClient, log)
 	}
 
 	if cfg.EnableEBPF {
@@ -87,6 +88,7 @@ func main() {
 type informerStores struct {
 	podStore   cache.Store
 	pvcIndexer cache.Indexer
+	dynClient  dynamic.Interface
 }
 
 func startInformers(ctx context.Context, nodeName string, log *slog.Logger) informerStores {
@@ -99,6 +101,12 @@ func startInformers(ctx context.Context, nodeName string, log *slog.Logger) info
 	cs, err := kubernetes.NewForConfig(k8sCfg)
 	if err != nil {
 		log.Error("creating clientset", "error", err)
+		os.Exit(1)
+	}
+
+	dynClient, err := dynamic.NewForConfig(k8sCfg)
+	if err != nil {
+		log.Error("creating dynamic client", "error", err)
 		os.Exit(1)
 	}
 
@@ -122,10 +130,10 @@ func startInformers(ctx context.Context, nodeName string, log *slog.Logger) info
 	pvcFactory.WaitForCacheSync(ctx.Done())
 
 	log.Info("informers synced")
-	return informerStores{podStore: podStore, pvcIndexer: pvcIndexer}
+	return informerStores{podStore: podStore, pvcIndexer: pvcIndexer, dynClient: dynClient}
 }
 
-func startQMP(ctx context.Context, cfg *config.Config, podStore cache.Store, log *slog.Logger) {
+func startQMP(ctx context.Context, cfg *config.Config, podStore cache.Store, dynClient dynamic.Interface, log *slog.Logger) {
 	criClient, err := qmp.NewCRIClient(cfg.CRISocket)
 	if err != nil {
 		log.Error("qmp: creating CRI client", "error", err)
@@ -140,7 +148,7 @@ func startQMP(ctx context.Context, cfg *config.Config, podStore cache.Store, log
 		Concurrency:  cfg.QMPConcurrency,
 		Namespaces:   config.ParseNamespaces(cfg.Namespaces),
 		LabelFilter:  cfg.QMPLabelFilter,
-	}, podStore, criClient, log)
+	}, podStore, criClient, dynClient, log)
 
 	prometheus.MustRegister(collector)
 	go collector.Run(ctx)
@@ -148,7 +156,7 @@ func startQMP(ctx context.Context, cfg *config.Config, podStore cache.Store, log
 	log.Info("qmp: subsystem started")
 }
 
-func startQGA(ctx context.Context, cfg *config.Config, podStore cache.Store, log *slog.Logger) {
+func startQGA(ctx context.Context, cfg *config.Config, podStore cache.Store, dynClient dynamic.Interface, log *slog.Logger) {
 	criClient, err := qmp.NewCRIClient(cfg.CRISocket)
 	if err != nil {
 		log.Error("qga: creating CRI client", "error", err)
@@ -164,7 +172,7 @@ func startQGA(ctx context.Context, cfg *config.Config, podStore cache.Store, log
 		Concurrency:  cfg.QGAConcurrency,
 		Namespaces:   config.ParseNamespaces(cfg.Namespaces),
 		LabelFilter:  cfg.QGALabelFilter,
-	}, podStore, criClient, log)
+	}, podStore, criClient, dynClient, log)
 
 	prometheus.MustRegister(collector)
 	go collector.Run(ctx)

@@ -183,6 +183,7 @@ func GuestExecWait(ctx context.Context, client *qmp.Client, pid int, timeout int
 type GuestDisk struct {
 	Name       string           // e.g. "\\\\.\\PhysicalDrive0"
 	DriveIndex int              // parsed from Name (e.g. 0)
+	Serial     string           // disk serial number (if reported by guest)
 	Location   qmp.DiskLocation // controller PCI address + bus/target/unit
 }
 
@@ -197,6 +198,7 @@ type guestDiskEntry struct {
 
 type guestDiskAddress struct {
 	BusType       string              `json:"bus-type"`
+	Serial        string              `json:"serial,omitempty"`
 	PCIController *guestPCIController `json:"pci-controller,omitempty"`
 	Bus           int                 `json:"bus"`
 	Target        int                 `json:"target"`
@@ -244,6 +246,7 @@ func parseGuestGetDisks(data []byte) ([]GuestDisk, error) {
 		disks = append(disks, GuestDisk{
 			Name:       entry.Name,
 			DriveIndex: idx,
+			Serial:     entry.Address.Serial,
 			Location: qmp.DiskLocation{
 				Controller: qmp.PCIAddr{
 					Domain:   pci.Domain,

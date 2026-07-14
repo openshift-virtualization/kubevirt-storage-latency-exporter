@@ -143,6 +143,7 @@ type xmlController struct {
 
 type xmlDisk struct {
 	Device  string    `xml:"device,attr"`
+	Serial  string    `xml:"serial"`
 	Target  xmlTarget `xml:"target"`
 	Alias   xmlAlias  `xml:"alias"`
 	Address xmlAddr   `xml:"address"`
@@ -245,10 +246,9 @@ func ParseDiskLocations(domainXML string) (map[DiskLocation]string, error) {
 			if ctrlIdx == "" {
 				ctrlIdx = "0"
 			}
-			// Use the disk's target bus to find the matching controller.
 			ctrlType := d.Target.Bus
 			if ctrlType == "" {
-				ctrlType = "sata"
+				continue
 			}
 			ctrlPCI, found := controllerPCI[ctrlType+":"+ctrlIdx]
 			if !found {
@@ -264,6 +264,28 @@ func ParseDiskLocations(domainXML string) (map[DiskLocation]string, error) {
 				Unit:       unit,
 			}] = volName
 		}
+	}
+	return result, nil
+}
+
+// ParseDiskSerials extracts serial→volumeName mappings from domain XML.
+// Only disks with both a ua-* alias and a non-empty <serial> element are included.
+func ParseDiskSerials(domainXML string) (map[string]string, error) {
+	var dom xmlDomain
+	if err := xml.Unmarshal([]byte(domainXML), &dom); err != nil {
+		return nil, fmt.Errorf("parsing domain XML: %w", err)
+	}
+
+	result := make(map[string]string)
+	for _, d := range dom.Devices.Disks {
+		if d.Device != "disk" || d.Serial == "" {
+			continue
+		}
+		volName := strings.TrimPrefix(d.Alias.Name, "ua-")
+		if volName == d.Alias.Name || volName == "" {
+			continue
+		}
+		result[d.Serial] = volName
 	}
 	return result, nil
 }

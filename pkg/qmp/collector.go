@@ -12,8 +12,17 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/tools/cache"
 )
+
+var vmiResource = schema.GroupVersionResource{
+	Group:    "kubevirt.io",
+	Version:  "v1",
+	Resource: "virtualmachineinstances",
+}
 
 var (
 	latencyDesc = prometheus.NewDesc(
@@ -109,6 +118,7 @@ type Collector struct {
 	cfg       PollerConfig
 	podStore  cache.Store
 	criClient *CRIClient
+	dynClient dynamic.Interface
 	log       *slog.Logger
 
 	mu           sync.RWMutex
@@ -120,11 +130,12 @@ type Collector struct {
 	connections map[string]*vmConnection
 }
 
-func NewCollector(cfg PollerConfig, podStore cache.Store, criClient *CRIClient, log *slog.Logger) *Collector {
+func NewCollector(cfg PollerConfig, podStore cache.Store, criClient *CRIClient, dynClient dynamic.Interface, log *slog.Logger) *Collector {
 	return &Collector{
 		cfg:         cfg,
 		podStore:    podStore,
 		criClient:   criClient,
+		dynClient:   dynClient,
 		log:         log,
 		connections: make(map[string]*vmConnection),
 	}
@@ -254,7 +265,6 @@ func (c *Collector) poll(ctx context.Context) {
 		namespace string
 		podName   string
 		vmiName   string
-		pvcMap    map[string]string
 	}
 
 	var allPods []podInfo
@@ -284,17 +294,10 @@ func (c *Collector) poll(ctx context.Context) {
 		if vmiName == "" {
 			continue
 		}
-		pvcMap := make(map[string]string)
-		for _, vol := range pod.Spec.Volumes {
-			if vol.PersistentVolumeClaim != nil {
-				pvcMap[vol.Name] = vol.PersistentVolumeClaim.ClaimName
-			}
-		}
 		allPods = append(allPods, podInfo{
 			namespace: pod.Namespace,
 			podName:   pod.Name,
 			vmiName:   vmiName,
-			pvcMap:    pvcMap,
 		})
 	}
 
@@ -348,7 +351,7 @@ func (c *Collector) poll(ctx context.Context) {
 			continue
 		}
 
-		conn, err := c.connectVM(t.namespace, t.vmiName, t.podName, info.PID, t.pvcMap)
+		conn, err := c.connectVM(ctx, t.namespace, t.vmiName, t.podName, info.PID)
 		if err != nil {
 			c.log.Error("qmp: connecting to VM", "namespace", t.namespace, "vmi", t.vmiName, "error", err)
 			continue
@@ -413,7 +416,7 @@ func (c *Collector) poll(ctx context.Context) {
 	c.log.Info("qmp: poll cycle complete", "vms", len(results), "errors", scrapeErrors)
 }
 
-func (c *Collector) connectVM(ns, vmi, podName string, pid int, pvcMap map[string]string) (*vmConnection, error) {
+func (c *Collector) connectVM(ctx context.Context, ns, vmi, podName string, pid int) (*vmConnection, error) {
 	sockPath := fmt.Sprintf("/proc/%d/root/run/libvirt/virtqemud-sock", pid)
 	if _, err := os.Stat(sockPath); err != nil {
 		return nil, fmt.Errorf("virtqemud socket not found at %s: %w", sockPath, err)
@@ -433,8 +436,54 @@ func (c *Collector) connectVM(ns, vmi, podName string, pid int, pvcMap map[strin
 		podName:   podName,
 		armed:     make(map[string]bool),
 		numQueues: make(map[string]int),
-		pvcMap:    pvcMap,
+		pvcMap:    FetchPVCMap(ctx, c.dynClient, ns, vmi, c.log),
 	}, nil
+}
+
+// FetchPVCMap retrieves PVC claim names from VMI status.volumeStatus via dynamic client.
+// This covers all volumes including hotplugged disks.
+func FetchPVCMap(ctx context.Context, dynClient dynamic.Interface, ns, vmiName string, log *slog.Logger) map[string]string {
+	pvcMap := make(map[string]string)
+	if dynClient == nil {
+		return pvcMap
+	}
+
+	obj, err := dynClient.Resource(vmiResource).Namespace(ns).Get(ctx, vmiName, metav1.GetOptions{})
+	if err != nil {
+		log.Warn("failed to fetch VMI for PVC mapping", "vmi", vmiName, "error", err)
+		return pvcMap
+	}
+
+	status, ok := obj.Object["status"].(map[string]interface{})
+	if !ok {
+		return pvcMap
+	}
+	volumeStatuses, ok := status["volumeStatus"].([]interface{})
+	if !ok {
+		return pvcMap
+	}
+
+	for _, vs := range volumeStatuses {
+		entry, ok := vs.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		name, _ := entry["name"].(string)
+		if name == "" {
+			continue
+		}
+		pvcInfo, ok := entry["persistentVolumeClaimInfo"].(map[string]interface{})
+		if !ok {
+			continue
+		}
+		claimName, _ := pvcInfo["claimName"].(string)
+		if claimName != "" {
+			pvcMap[name] = claimName
+		}
+	}
+
+	log.Debug("PVC map from VMI status", "vmi", vmiName, "pvcMap", pvcMap)
+	return pvcMap
 }
 
 func (c *Collector) scrapeVM(ctx context.Context, conn *vmConnection) (*VMIResult, error) {
@@ -474,6 +523,17 @@ func (c *Collector) scrapeVM(ctx context.Context, conn *vmConnection) (*VMIResul
 		conn.armed[deviceID] = true
 	}
 
+	pvcRefreshed := false
+	refreshPVC := func(alias string) string {
+		pvc := conn.pvcMap[alias]
+		if pvc == "" && !pvcRefreshed {
+			pvcRefreshed = true
+			conn.pvcMap = FetchPVCMap(ctx, c.dynClient, conn.namespace, conn.vmi, c.log)
+			pvc = conn.pvcMap[alias]
+		}
+		return pvc
+	}
+
 	var devices []DeviceResult
 	for i := range resp.Return {
 		dev := &resp.Return[i]
@@ -486,7 +546,7 @@ func (c *Collector) scrapeVM(ctx context.Context, conn *vmConnection) (*VMIResul
 		}
 		devices = append(devices, DeviceResult{
 			Disk:  alias,
-			PVC:   conn.pvcMap[alias],
+			PVC:   refreshPVC(alias),
 			Stats: dev.Stats,
 		})
 	}
@@ -532,7 +592,7 @@ func (c *Collector) scrapeVM(ctx context.Context, conn *vmConnection) (*VMIResul
 				}
 				virtqueues = append(virtqueues, VirtqueueResult{
 					Disk:     alias,
-					PVC:      conn.pvcMap[alias],
+					PVC:      refreshPVC(alias),
 					Bus:      "virtio",
 					Queue:    qi,
 					Inuse:    qs.Inuse,

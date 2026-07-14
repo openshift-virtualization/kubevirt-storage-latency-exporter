@@ -12,6 +12,7 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/tools/cache"
 
 	"github.com/openshift-virtualization/kubevirt-metrics-exporter/pkg/qmp"
@@ -70,6 +71,7 @@ type Collector struct {
 	cfg       CollectorConfig
 	podStore  cache.Store
 	criClient *qmp.CRIClient
+	dynClient dynamic.Interface
 	log       *slog.Logger
 
 	mu           sync.RWMutex
@@ -81,11 +83,12 @@ type Collector struct {
 	vms    map[string]*vmState
 }
 
-func NewCollector(cfg CollectorConfig, podStore cache.Store, criClient *qmp.CRIClient, log *slog.Logger) *Collector {
+func NewCollector(cfg CollectorConfig, podStore cache.Store, criClient *qmp.CRIClient, dynClient dynamic.Interface, log *slog.Logger) *Collector {
 	return &Collector{
 		cfg:       cfg,
 		podStore:  podStore,
 		criClient: criClient,
+		dynClient: dynClient,
 		log:       log,
 		vms:       make(map[string]*vmState),
 	}
@@ -172,7 +175,6 @@ type podInfo struct {
 	namespace string
 	podName   string
 	vmiName   string
-	pvcMap    map[string]string
 }
 
 func (c *Collector) poll(ctx context.Context) {
@@ -205,17 +207,10 @@ func (c *Collector) poll(ctx context.Context) {
 		if vmiName == "" {
 			continue
 		}
-		pvcMap := make(map[string]string)
-		for _, vol := range pod.Spec.Volumes {
-			if vol.PersistentVolumeClaim != nil {
-				pvcMap[vol.Name] = vol.PersistentVolumeClaim.ClaimName
-			}
-		}
 		allPods = append(allPods, podInfo{
 			namespace: pod.Namespace,
 			podName:   pod.Name,
 			vmiName:   vmiName,
-			pvcMap:    pvcMap,
 		})
 	}
 
@@ -269,7 +264,7 @@ func (c *Collector) poll(ctx context.Context) {
 			continue
 		}
 
-		vs, err := c.connectVM(ctx, t.namespace, t.vmiName, t.podName, info.PID, t.pvcMap)
+		vs, err := c.connectVM(ctx, t.namespace, t.vmiName, t.podName, info.PID)
 		if err != nil {
 			c.log.Error("qga: connecting to VM", "namespace", t.namespace, "vmi", t.vmiName, "error", err)
 			continue
@@ -394,6 +389,7 @@ func (c *Collector) scrapeVM(ctx context.Context, vs *vmState) (*vmiResult, erro
 		c.log.Debug("qga: first snapshot, no previous data to diff", "vmi", vs.vmi, "disks", len(currSnapshot))
 	}
 	if vs.prevSnapshot != nil {
+		pvcRefreshed := false
 		for name, curr := range currSnapshot {
 			prev, ok := vs.prevSnapshot[name]
 			if !ok {
@@ -406,6 +402,11 @@ func (c *Collector) scrapeVM(ctx context.Context, vs *vmState) (*vmiResult, erro
 					if volName, ok := vs.diskMap[idx]; ok {
 						ed.Disk = volName
 						ed.PVC = vs.pvcMap[volName]
+						if ed.PVC == "" && !pvcRefreshed {
+							pvcRefreshed = true
+							vs.pvcMap = qmp.FetchPVCMap(ctx, c.dynClient, vs.namespace, vs.vmi, c.log)
+							ed.PVC = vs.pvcMap[volName]
+						}
 					}
 				}
 				disks = append(disks, ed)
@@ -435,7 +436,7 @@ func (c *Collector) scrapeVM(ctx context.Context, vs *vmState) (*vmiResult, erro
 	}, nil
 }
 
-func (c *Collector) connectVM(ctx context.Context, ns, vmi, podName string, pid int, pvcMap map[string]string) (*vmState, error) {
+func (c *Collector) connectVM(ctx context.Context, ns, vmi, podName string, pid int) (*vmState, error) {
 	sockPath := fmt.Sprintf("/proc/%d/root/run/libvirt/virtqemud-sock", pid)
 	if _, err := os.Stat(sockPath); err != nil {
 		return nil, fmt.Errorf("virtqemud socket not found at %s: %w", sockPath, err)
@@ -449,6 +450,8 @@ func (c *Collector) connectVM(ctx context.Context, ns, vmi, podName string, pid 
 
 	c.log.Info("qga: connected to VM", "namespace", ns, "vmi", vmi, "pid", pid)
 
+	pvcMap := qmp.FetchPVCMap(ctx, c.dynClient, ns, vmi, c.log)
+
 	var diskMap map[int]string
 	domainXML, err := client.DomainGetXMLDesc()
 	if err != nil {
@@ -460,7 +463,7 @@ func (c *Collector) connectVM(ctx context.Context, ns, vmi, podName string, pid 
 		} else {
 			for _, gd := range guestDisks {
 				c.log.Debug("qga: guest-get-disks entry", "vmi", vmi,
-					"name", gd.Name, "drive_index", gd.DriveIndex,
+					"name", gd.Name, "drive_index", gd.DriveIndex, "serial", gd.Serial,
 					"ctrl_domain", gd.Location.Controller.Domain,
 					"ctrl_bus", gd.Location.Controller.Bus,
 					"ctrl_slot", gd.Location.Controller.Slot,

@@ -6,3 +6,6 @@ rules:
   - apiGroups: [""]
     resources: ["pods", "persistentvolumeclaims"]
     verbs: ["get", "list", "watch"]
+  - apiGroups: ["kubevirt.io"]
+    resources: ["virtualmachineinstances"]
+    verbs: ["get"]

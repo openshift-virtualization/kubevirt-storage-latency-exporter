@@ -174,4 +174,31 @@ var _ = Describe("BuildDiskMapping", func() {
 		Expect(dm[0]).To(Equal("scsi-vol-0"))
 		Expect(dm[1]).To(Equal("scsi-vol-1"))
 	})
+
+	It("should fall back to serial matching for SATA disks with invalid PCI controller", func() {
+		const sataDomainXML = `<domain type='kvm'>
+  <devices>
+    <controller type='sata' index='0'>
+      <address type='pci' domain='0x0000' bus='0x00' slot='0x1f' function='0x2'/>
+    </controller>
+    <disk type='file' device='disk'>
+      <target dev='sda' bus='sata'/>
+      <serial>my-serial-123</serial>
+      <alias name='ua-sata-disk'/>
+      <address type='drive' controller='0' bus='0' target='0' unit='0'/>
+    </disk>
+  </devices>
+</domain>`
+
+		guestDisks := []GuestDisk{
+			{Name: `\\.\PhysicalDrive0`, DriveIndex: 0, Serial: "my-serial-123", Location: qmp.DiskLocation{
+				Controller: qmp.PCIAddr{Domain: -1, Bus: -1, Slot: -1, Function: -1},
+			}},
+		}
+
+		dm, err := BuildDiskMapping(sataDomainXML, guestDisks)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(dm).To(HaveLen(1))
+		Expect(dm[0]).To(Equal("sata-disk"))
+	})
 })

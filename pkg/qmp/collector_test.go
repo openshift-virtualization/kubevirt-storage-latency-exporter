@@ -204,7 +204,7 @@ var _ = Describe("Collector", func() {
 	var c *Collector
 
 	BeforeEach(func() {
-		c = NewCollector(PollerConfig{NodeName: "test-node"}, nil, nil, slog.Default())
+		c = NewCollector(PollerConfig{NodeName: "test-node"}, nil, nil, nil, slog.Default())
 	})
 
 	collectMetrics := func() []prometheus.Metric {
@@ -454,7 +454,7 @@ var _ = Describe("Collector virtqueue metrics", func() {
 	var c *Collector
 
 	BeforeEach(func() {
-		c = NewCollector(PollerConfig{NodeName: "test-node"}, nil, nil, slog.Default())
+		c = NewCollector(PollerConfig{NodeName: "test-node"}, nil, nil, nil, slog.Default())
 	})
 
 	collectMetrics := func() []prometheus.Metric {
@@ -593,7 +593,7 @@ var _ = Describe("Collector virtio-scsi virtqueue metrics", func() {
 	var c *Collector
 
 	BeforeEach(func() {
-		c = NewCollector(PollerConfig{NodeName: "test-node"}, nil, nil, slog.Default())
+		c = NewCollector(PollerConfig{NodeName: "test-node"}, nil, nil, nil, slog.Default())
 	})
 
 	collectMetrics := func() []prometheus.Metric {

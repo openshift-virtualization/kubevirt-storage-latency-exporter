@@ -8,11 +8,9 @@ import (
 )
 
 // BuildDiskMapping correlates guest PhysicalDrive indices with KubeVirt
-// volume names by joining on DiskLocation (controller PCI address + bus/target/unit).
-//
-// This works for virtio-blk, SATA, and SCSI disks:
-//   - virtio-blk: each disk is its own PCI device (bus/target/unit = 0)
-//   - SATA/SCSI: disks share a controller PCI address, distinguished by bus/target/unit
+// volume names by joining on DiskLocation (controller PCI address + bus/target/unit),
+// falling back to serial number matching for disks that can't be correlated
+// by location (e.g. SATA disks where the guest agent reports invalid addresses).
 //
 // domainXML is the libvirt domain XML (from DomainGetXMLDesc).
 // guestDisks comes from the guest-get-disks QGA command.
@@ -30,6 +28,23 @@ func BuildDiskMapping(domainXML string, guestDisks []GuestDisk) (map[int]string,
 			result[gd.DriveIndex] = volName
 		}
 	}
+
+	// Fall back to serial matching for disks not mapped by location.
+	serialMap, err := qmp.ParseDiskSerials(domainXML)
+	if err == nil && len(serialMap) > 0 {
+		for _, gd := range guestDisks {
+			if _, already := result[gd.DriveIndex]; already {
+				continue
+			}
+			if gd.Serial == "" {
+				continue
+			}
+			if volName, ok := serialMap[gd.Serial]; ok {
+				result[gd.DriveIndex] = volName
+			}
+		}
+	}
+
 	return result, nil
 }
 

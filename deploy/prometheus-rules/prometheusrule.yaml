@@ -88,8 +88,10 @@ spec:
               kubevirt_vmi_storage_queue_inuse
             )
             /
-            sum by (namespace, name, node, disk, persistentvolumeclaim, bus) (
-              kubevirt_vmi_storage_queue_size
+            (
+              sum by (namespace, name, node, disk, persistentvolumeclaim, bus) (
+                kubevirt_vmi_storage_queue_size
+              ) > 0
             ) > 0.9
           for: 5m
           labels:

@@ -82,7 +82,7 @@ histogram_quantile(0.99,
 
 Virtqueue saturation per disk (ratio of in-flight descriptors to capacity):
 ```promql
-kubevirt_vmi_storage_queue_inuse / kubevirt_vmi_storage_queue_size
+kubevirt_vmi_storage_queue_inuse / (kubevirt_vmi_storage_queue_size > 0)
 ```
 
 The `bus` label distinguishes `virtio` (per-disk virtio-blk devices) from `scsi` (shared virtio-scsi controller). For virtio-scsi, `disk` and `persistentvolumeclaim` are empty because the virtqueues belong to the shared controller rather than any individual disk.

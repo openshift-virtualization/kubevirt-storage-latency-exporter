@@ -117,16 +117,40 @@ type PCIAddr struct {
 	Function int
 }
 
+// DiskLocation uniquely identifies a disk from the guest's perspective.
+// For virtio-blk: Controller is the disk's own PCI address (Bus/Target/Unit = 0).
+// For SATA/SCSI: Controller is the AHCI/SCSI controller's PCI address,
+// and Bus/Target/Unit identify the disk on that controller.
+type DiskLocation struct {
+	Controller PCIAddr
+	Bus        int
+	Target     int
+	Unit       int
+}
+
 type xmlDomain struct {
 	Devices struct {
-		Disks []xmlDisk `xml:"disk"`
+		Disks       []xmlDisk       `xml:"disk"`
+		Controllers []xmlController `xml:"controller"`
 	} `xml:"devices"`
 }
 
+type xmlController struct {
+	Type    string  `xml:"type,attr"`
+	Index   string  `xml:"index,attr"`
+	Address xmlAddr `xml:"address"`
+}
+
 type xmlDisk struct {
-	Device  string   `xml:"device,attr"`
-	Alias   xmlAlias `xml:"alias"`
-	Address xmlAddr  `xml:"address"`
+	Device  string    `xml:"device,attr"`
+	Serial  string    `xml:"serial"`
+	Target  xmlTarget `xml:"target"`
+	Alias   xmlAlias  `xml:"alias"`
+	Address xmlAddr   `xml:"address"`
+}
+
+type xmlTarget struct {
+	Bus string `xml:"bus,attr"`
 }
 
 type xmlAlias struct {
@@ -134,16 +158,19 @@ type xmlAlias struct {
 }
 
 type xmlAddr struct {
-	Type     string `xml:"type,attr"`
-	Domain   string `xml:"domain,attr"`
-	Bus      string `xml:"bus,attr"`
-	Slot     string `xml:"slot,attr"`
-	Function string `xml:"function,attr"`
+	Type       string `xml:"type,attr"`
+	Domain     string `xml:"domain,attr"`
+	Bus        string `xml:"bus,attr"`
+	Slot       string `xml:"slot,attr"`
+	Function   string `xml:"function,attr"`
+	Controller string `xml:"controller,attr"`
+	Target     string `xml:"target,attr"`
+	Unit       string `xml:"unit,attr"`
 }
 
 // ParseDiskAddresses extracts PCI addresses for each ua-* aliased disk
-// from a libvirt domain XML string.
-// Returns a map of PCIAddr -> KubeVirt volume name.
+// from a libvirt domain XML string. Only handles virtio-blk (type="pci").
+// Deprecated: use ParseDiskLocations for full SATA/SCSI/virtio-blk support.
 func ParseDiskAddresses(domainXML string) (map[PCIAddr]string, error) {
 	var dom xmlDomain
 	if err := xml.Unmarshal([]byte(domainXML), &dom); err != nil {
@@ -168,6 +195,97 @@ func ParseDiskAddresses(domainXML string) (map[PCIAddr]string, error) {
 			continue
 		}
 		result[addr] = volName
+	}
+	return result, nil
+}
+
+// ParseDiskLocations extracts disk locations for each ua-* aliased disk
+// from a libvirt domain XML string. Handles:
+//   - virtio-blk (address type="pci"): controller = disk PCI addr, bus/target/unit = 0
+//   - SATA/SCSI (address type="drive"): controller = looked up from <controller> elements
+func ParseDiskLocations(domainXML string) (map[DiskLocation]string, error) {
+	var dom xmlDomain
+	if err := xml.Unmarshal([]byte(domainXML), &dom); err != nil {
+		return nil, fmt.Errorf("parsing domain XML: %w", err)
+	}
+
+	// Build controller index → PCI address map for sata/scsi controllers.
+	controllerPCI := make(map[string]PCIAddr) // key: "sata:0", "scsi:0", etc.
+	for _, ctrl := range dom.Devices.Controllers {
+		if ctrl.Address.Type != "pci" {
+			continue
+		}
+		addr, err := parseHexAddr(ctrl.Address)
+		if err != nil {
+			continue
+		}
+		key := ctrl.Type + ":" + ctrl.Index
+		controllerPCI[key] = addr
+	}
+
+	result := make(map[DiskLocation]string)
+	for _, d := range dom.Devices.Disks {
+		if d.Device != "disk" {
+			continue
+		}
+		volName := strings.TrimPrefix(d.Alias.Name, "ua-")
+		if volName == d.Alias.Name || volName == "" {
+			continue
+		}
+
+		switch d.Address.Type {
+		case "pci":
+			addr, err := parseHexAddr(d.Address)
+			if err != nil {
+				continue
+			}
+			result[DiskLocation{Controller: addr}] = volName
+
+		case "drive":
+			ctrlIdx := d.Address.Controller
+			if ctrlIdx == "" {
+				ctrlIdx = "0"
+			}
+			ctrlType := d.Target.Bus
+			if ctrlType == "" {
+				continue
+			}
+			ctrlPCI, found := controllerPCI[ctrlType+":"+ctrlIdx]
+			if !found {
+				continue
+			}
+			bus, _ := strconv.Atoi(d.Address.Bus)
+			target, _ := strconv.Atoi(d.Address.Target)
+			unit, _ := strconv.Atoi(d.Address.Unit)
+			result[DiskLocation{
+				Controller: ctrlPCI,
+				Bus:        bus,
+				Target:     target,
+				Unit:       unit,
+			}] = volName
+		}
+	}
+	return result, nil
+}
+
+// ParseDiskSerials extracts serial→volumeName mappings from domain XML.
+// Only disks with both a ua-* alias and a non-empty <serial> element are included.
+func ParseDiskSerials(domainXML string) (map[string]string, error) {
+	var dom xmlDomain
+	if err := xml.Unmarshal([]byte(domainXML), &dom); err != nil {
+		return nil, fmt.Errorf("parsing domain XML: %w", err)
+	}
+
+	result := make(map[string]string)
+	for _, d := range dom.Devices.Disks {
+		if d.Device != "disk" || d.Serial == "" {
+			continue
+		}
+		volName := strings.TrimPrefix(d.Alias.Name, "ua-")
+		if volName == d.Alias.Name || volName == "" {
+			continue
+		}
+		result[d.Serial] = volName
 	}
 	return result, nil
 }

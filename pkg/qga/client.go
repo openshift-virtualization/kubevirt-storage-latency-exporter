@@ -181,9 +181,10 @@ func GuestExecWait(ctx context.Context, client *qmp.Client, pid int, timeout int
 
 // GuestDisk represents a disk discovered via the guest-get-disks QGA command.
 type GuestDisk struct {
-	Name       string      // e.g. "\\\\.\\PhysicalDrive0"
-	DriveIndex int         // parsed from Name (e.g. 0)
-	PCIAddr    qmp.PCIAddr // PCI controller address from guest
+	Name       string           // e.g. "\\\\.\\PhysicalDrive0"
+	DriveIndex int              // parsed from Name (e.g. 0)
+	Serial     string           // disk serial number (if reported by guest)
+	Location   qmp.DiskLocation // controller PCI address + bus/target/unit
 }
 
 type guestGetDisksResponse struct {
@@ -197,7 +198,11 @@ type guestDiskEntry struct {
 
 type guestDiskAddress struct {
 	BusType       string              `json:"bus-type"`
+	Serial        string              `json:"serial,omitempty"`
 	PCIController *guestPCIController `json:"pci-controller,omitempty"`
+	Bus           int                 `json:"bus"`
+	Target        int                 `json:"target"`
+	Unit          int                 `json:"unit"`
 }
 
 type guestPCIController struct {
@@ -241,11 +246,17 @@ func parseGuestGetDisks(data []byte) ([]GuestDisk, error) {
 		disks = append(disks, GuestDisk{
 			Name:       entry.Name,
 			DriveIndex: idx,
-			PCIAddr: qmp.PCIAddr{
-				Domain:   pci.Domain,
-				Bus:      pci.Bus,
-				Slot:     pci.Slot,
-				Function: pci.Function,
+			Serial:     entry.Address.Serial,
+			Location: qmp.DiskLocation{
+				Controller: qmp.PCIAddr{
+					Domain:   pci.Domain,
+					Bus:      pci.Bus,
+					Slot:     pci.Slot,
+					Function: pci.Function,
+				},
+				Bus:    entry.Address.Bus,
+				Target: entry.Address.Target,
+				Unit:   entry.Address.Unit,
 			},
 		})
 	}

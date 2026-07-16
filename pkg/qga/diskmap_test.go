@@ -58,11 +58,11 @@ var _ = Describe("parseGuestGetDisks", func() {
 		Expect(err).NotTo(HaveOccurred())
 		Expect(disks).To(HaveLen(3))
 		Expect(disks[0].DriveIndex).To(Equal(0))
-		Expect(disks[0].PCIAddr.Bus).To(Equal(7))
+		Expect(disks[0].Location.Controller.Bus).To(Equal(7))
 		Expect(disks[1].DriveIndex).To(Equal(1))
-		Expect(disks[1].PCIAddr.Bus).To(Equal(8))
+		Expect(disks[1].Location.Controller.Bus).To(Equal(8))
 		Expect(disks[2].DriveIndex).To(Equal(2))
-		Expect(disks[2].PCIAddr.Bus).To(Equal(9))
+		Expect(disks[2].Location.Controller.Bus).To(Equal(9))
 	})
 
 	It("should skip partition entries", func() {
@@ -106,9 +106,9 @@ var _ = Describe("parsePhysicalDriveIndex", func() {
 var _ = Describe("BuildDiskMapping", func() {
 	It("should map drive indices to volume names", func() {
 		guestDisks := []GuestDisk{
-			{Name: `\\.\PhysicalDrive0`, DriveIndex: 0, PCIAddr: qmp.PCIAddr{Domain: 0, Bus: 7, Slot: 0, Function: 0}},
-			{Name: `\\.\PhysicalDrive1`, DriveIndex: 1, PCIAddr: qmp.PCIAddr{Domain: 0, Bus: 8, Slot: 0, Function: 0}},
-			{Name: `\\.\PhysicalDrive2`, DriveIndex: 2, PCIAddr: qmp.PCIAddr{Domain: 0, Bus: 9, Slot: 0, Function: 0}},
+			{Name: `\\.\PhysicalDrive0`, DriveIndex: 0, Location: qmp.DiskLocation{Controller: qmp.PCIAddr{Domain: 0, Bus: 7, Slot: 0, Function: 0}}},
+			{Name: `\\.\PhysicalDrive1`, DriveIndex: 1, Location: qmp.DiskLocation{Controller: qmp.PCIAddr{Domain: 0, Bus: 8, Slot: 0, Function: 0}}},
+			{Name: `\\.\PhysicalDrive2`, DriveIndex: 2, Location: qmp.DiskLocation{Controller: qmp.PCIAddr{Domain: 0, Bus: 9, Slot: 0, Function: 0}}},
 		}
 
 		dm, err := BuildDiskMapping(testDomainXML, guestDisks)
@@ -121,8 +121,8 @@ var _ = Describe("BuildDiskMapping", func() {
 
 	It("should produce a partial mapping when some PCI addresses don't match", func() {
 		guestDisks := []GuestDisk{
-			{Name: `\\.\PhysicalDrive0`, DriveIndex: 0, PCIAddr: qmp.PCIAddr{Domain: 0, Bus: 7, Slot: 0, Function: 0}},
-			{Name: `\\.\PhysicalDrive1`, DriveIndex: 1, PCIAddr: qmp.PCIAddr{Domain: 0, Bus: 99, Slot: 0, Function: 0}},
+			{Name: `\\.\PhysicalDrive0`, DriveIndex: 0, Location: qmp.DiskLocation{Controller: qmp.PCIAddr{Domain: 0, Bus: 7, Slot: 0, Function: 0}}},
+			{Name: `\\.\PhysicalDrive1`, DriveIndex: 1, Location: qmp.DiskLocation{Controller: qmp.PCIAddr{Domain: 0, Bus: 99, Slot: 0, Function: 0}}},
 		}
 
 		dm, err := BuildDiskMapping(testDomainXML, guestDisks)
@@ -135,5 +135,70 @@ var _ = Describe("BuildDiskMapping", func() {
 		dm, err := BuildDiskMapping(testDomainXML, nil)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(dm).To(BeEmpty())
+	})
+
+	It("should map SCSI disks using controller PCI address and target", func() {
+		const scsiDomainXML = `<domain type='kvm'>
+  <devices>
+    <controller type='scsi' index='0' model='virtio-scsi'>
+      <alias name='scsi0'/>
+      <address type='pci' domain='0x0000' bus='0x05' slot='0x00' function='0x0'/>
+    </controller>
+    <disk type='file' device='disk'>
+      <target dev='sda' bus='scsi'/>
+      <alias name='ua-scsi-vol-0'/>
+      <address type='drive' controller='0' bus='0' target='0' unit='0'/>
+    </disk>
+    <disk type='file' device='disk'>
+      <target dev='sdb' bus='scsi'/>
+      <alias name='ua-scsi-vol-1'/>
+      <address type='drive' controller='0' bus='0' target='1' unit='0'/>
+    </disk>
+  </devices>
+</domain>`
+
+		guestDisks := []GuestDisk{
+			{Name: `\\.\PhysicalDrive0`, DriveIndex: 0, Location: qmp.DiskLocation{
+				Controller: qmp.PCIAddr{Domain: 0, Bus: 5, Slot: 0, Function: 0},
+				Target:     0,
+			}},
+			{Name: `\\.\PhysicalDrive1`, DriveIndex: 1, Location: qmp.DiskLocation{
+				Controller: qmp.PCIAddr{Domain: 0, Bus: 5, Slot: 0, Function: 0},
+				Target:     1,
+			}},
+		}
+
+		dm, err := BuildDiskMapping(scsiDomainXML, guestDisks)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(dm).To(HaveLen(2))
+		Expect(dm[0]).To(Equal("scsi-vol-0"))
+		Expect(dm[1]).To(Equal("scsi-vol-1"))
+	})
+
+	It("should fall back to serial matching for SATA disks with invalid PCI controller", func() {
+		const sataDomainXML = `<domain type='kvm'>
+  <devices>
+    <controller type='sata' index='0'>
+      <address type='pci' domain='0x0000' bus='0x00' slot='0x1f' function='0x2'/>
+    </controller>
+    <disk type='file' device='disk'>
+      <target dev='sda' bus='sata'/>
+      <serial>my-serial-123</serial>
+      <alias name='ua-sata-disk'/>
+      <address type='drive' controller='0' bus='0' target='0' unit='0'/>
+    </disk>
+  </devices>
+</domain>`
+
+		guestDisks := []GuestDisk{
+			{Name: `\\.\PhysicalDrive0`, DriveIndex: 0, Serial: "my-serial-123", Location: qmp.DiskLocation{
+				Controller: qmp.PCIAddr{Domain: -1, Bus: -1, Slot: -1, Function: -1},
+			}},
+		}
+
+		dm, err := BuildDiskMapping(sataDomainXML, guestDisks)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(dm).To(HaveLen(1))
+		Expect(dm[0]).To(Equal("sata-disk"))
 	})
 })
